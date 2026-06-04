@@ -1,0 +1,10 @@
+{
+  "sessionId": "test-session",
+  "topics": {
+    "tich_phan": {
+      "errorCount": 1,
+      "correctCount": 0,
+      "lastSeen": "2026-06-04T09:28:07.727Z"
+    }
+  }
+}
