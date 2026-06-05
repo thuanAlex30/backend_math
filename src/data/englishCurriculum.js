@@ -429,6 +429,33 @@ export function getEnglishCurriculum(grade) {
   return englishByGrade[g] || englishByGrade[9];
 }
 
+/** Unit SGK cho phát âm — tách câu mẫu theo chủ đề */
+const PRONUNCIATION_UNIT_TITLES = {
+  6: ['Unit 1: Bạn bè (My friends)', 'Unit 2: Đồ vật (Things)'],
+  7: ['Unit 1: Cảm xúc (Feelings)', 'Unit 2: Đọc sách (Reading)'],
+  8: ['Unit 1: Giao tiếp (Communication)', 'Unit 2: So sánh (Comparisons)'],
+  9: ['Unit 1: Trường học (School)', 'Unit 2: Thời tiết (Weather)'],
+  10: ['Unit 1: Công việc (Work)', 'Unit 2: Du lịch (Travel)'],
+  11: ['Unit 1: Sức khỏe (Health)', 'Unit 2: Môi trường (Environment)'],
+  12: ['Unit 1: Học thuật (Academic)', 'Unit 2: Xã hội (Society)'],
+};
+
+export function buildPronunciationUnits(grade, pronunciation) {
+  if (pronunciation.units?.length) return pronunciation.units;
+  const sentences = pronunciation.sampleSentences || [];
+  const titles = PRONUNCIATION_UNIT_TITLES[grade] || [
+    `Unit 1: Luyện phát âm lớp ${grade}`,
+  ];
+  if (sentences.length <= 2 || titles.length === 1) {
+    return [{ id: 'unit1', title: titles[0], sentences }];
+  }
+  const mid = Math.ceil(sentences.length / 2);
+  return [
+    { id: 'unit1', title: titles[0], sentences: sentences.slice(0, mid) },
+    { id: 'unit2', title: titles[1] || titles[0], sentences: sentences.slice(mid) },
+  ];
+}
+
 /** Map lớp → trình độ AI (tương thích EnglishLevel cũ) */
 export function gradeToEnglishLevel(grade) {
   const g = Number(grade);

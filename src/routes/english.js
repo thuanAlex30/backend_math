@@ -70,7 +70,8 @@ router.get('/english/topics/grammar', (req, res) => {
 
 router.get('/english/pronunciation/practice', (req, res) => {
   const grade = parseGrade(req.query) ?? 9;
-  res.json(getPronunciationPractice(grade));
+  const unitId = req.query.unitId;
+  res.json(getPronunciationPractice(grade, unitId));
 });
 
 router.post('/english/grammar/explain', async (req, res) => {

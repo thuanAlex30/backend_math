@@ -17,6 +17,7 @@ import {
   getEnglishCurriculum,
   gradeToEnglishLevel,
   buildCurriculumPrompt,
+  buildPronunciationUnits,
   isValidEnglishGrade,
   GRADES,
 } from '../data/englishCurriculum.js';
@@ -430,15 +431,21 @@ export function gradeListening(questions, answers) {
   return { score, correct, total: questions.length, results };
 }
 
-export function getPronunciationPractice(grade = 9) {
+export function getPronunciationPractice(grade = 9, unitId) {
   const g = resolveGrade(grade);
   const { pronunciation } = getEnglishCurriculum(g);
+  const units = buildPronunciationUnits(g, pronunciation);
+  const unit = unitId ? units.find((u) => u.id === unitId) : units[0];
+  const active = unit || units[0];
   return {
     grade: g,
+    units,
+    unitId: active?.id,
+    unitTitle: active?.title,
     content: pronunciation.content,
     description: pronunciation.description,
     exercises: pronunciation.exercises,
-    sentences: pronunciation.sampleSentences,
+    sentences: active?.sentences || pronunciation.sampleSentences,
   };
 }
 
