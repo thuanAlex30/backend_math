@@ -1,7 +1,9 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
+import passport from 'passport';
 import solveRoutes from './src/routes/solve.js';
 import chatRoutes from './src/routes/chat.js';
 import ttsRoutes from './src/routes/tts.js';
@@ -11,19 +13,32 @@ import profileRoutes from './src/routes/profile.js';
 import leaderboardRoutes from './src/routes/leaderboard.js';
 import examRoutes from './src/routes/exam.js';
 import mathWritingRoutes from './src/routes/mathWriting.js';
+import authRoutes from './src/routes/auth.js';
 import { isDemoMode } from './src/services/hfRouter.js';
 import { ensureProfilesDir } from './src/services/graphRag.js';
+import { connectDatabase } from './src/config/database.js';
+import { configurePassport } from './src/config/passport.js';
 
 dotenv.config({ override: true });
 
-// Đảm bảo thư mục lưu profile Graph RAG tồn tại
+await connectDatabase();
 await ensureProfilesDir();
+
+configurePassport();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-app.use(cors({ origin: true }));
+app.use(
+  cors({
+    origin: FRONTEND_URL,
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: '15mb' }));
+app.use(cookieParser());
+app.use(passport.initialize());
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -45,6 +60,7 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+app.use('/api', authRoutes);
 app.use('/api', solveRoutes);
 app.use('/api', chatRoutes);
 app.use('/api', ttsRoutes);
