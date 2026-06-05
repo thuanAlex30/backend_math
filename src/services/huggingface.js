@@ -1,4 +1,10 @@
-import { SYSTEM_PROMPT, CHAT_SYSTEM_PROMPT } from '../prompts/system.js';
+import {
+  SYSTEM_PROMPT,
+  CHAT_SYSTEM_PROMPT,
+  CHAT_PERSONAS,
+  resolveSystemPrompt,
+  buildStudentContextPrompt,
+} from '../prompts/system.js';
 import { getDemoSolution } from '../data/demoSolutions.js';
 import { extractVisualization } from '../utils/parseSolution.js';
 import {
@@ -7,7 +13,8 @@ import {
   chatCompleteStream,
 } from './hfRouter.js';
 
-export async function generateSolution(question) {
+export async function generateSolution(question, options = {}) {
+  const systemPrompt = resolveSystemPrompt(options);
   if (isDemoMode()) {
     const demo = getDemoSolution(question);
     return {
@@ -19,7 +26,7 @@ export async function generateSolution(question) {
   }
 
   const raw = await chatComplete([
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: systemPrompt },
     { role: 'user', content: question },
   ]);
 
@@ -28,22 +35,27 @@ export async function generateSolution(question) {
 }
 
 /**
- * Stream lời giải. Nếu có personalizedContext (Graph RAG), prepend vào system prompt.
+ * Stream lời giải.
  * @param {string} question
- * @param {string} [personalizedContext] - context cá nhân hóa từ graphRag.buildPersonalizedContext
+ * @param {string} [personalizedContext] - Graph RAG context
+ * @param {object} [options] - mode, compact, studentContext
  */
-export async function* streamSolution(question, personalizedContext) {
-  const systemPrompt = personalizedContext
-    ? `${personalizedContext}\n\n${SYSTEM_PROMPT}`
-    : SYSTEM_PROMPT;
+export async function* streamSolution(question, personalizedContext, options = {}) {
+  let systemPrompt = resolveSystemPrompt(options);
+  if (personalizedContext) {
+    systemPrompt = `${personalizedContext}\n\n${systemPrompt}`;
+  }
 
   if (isDemoMode()) {
     const demo = getDemoSolution(question);
-    for (const w of demo.solution.split(/(\s+)/)) {
+    const text = options.mode === 'hint'
+      ? `**Phân tích đề:**\n${question.slice(0, 80)}...\n\n**Câu hỏi gợi mở:**\nEm nghĩ ta cần áp dụng công thức nào?\n\n**Gợi ý công thức:**\nHãy thử liên hệ kiến thức đã học.\n\n**Em thử bước nào?**\nBấm **Xem lời giải đầy đủ** nếu em cần.`
+      : demo.solution;
+    for (const w of text.split(/(\s+)/)) {
       yield { token: w };
       await new Promise((r) => setTimeout(r, 15));
     }
-    yield { done: true, visualization: demo.visualization };
+    yield { done: true, visualization: options.mode === 'hint' ? null : demo.visualization };
     return;
   }
 
@@ -59,9 +71,15 @@ export async function* streamSolution(question, personalizedContext) {
   yield { done: true, solution, visualization };
 }
 
-export async function chatWithContext(messages, context) {
+export async function chatWithContext(messages, context, options = {}) {
   const contextBlock = context
     ? `\n\n[Bài toán gốc]\n${context.question}\n\n[Lời giải]\n${context.solution}`
+    : '';
+
+  const persona = CHAT_PERSONAS[options.tutorPersona] || CHAT_PERSONAS.teacher;
+  const studentBlock = buildStudentContextPrompt(options.studentContext);
+  const gradeNote = options.grade
+    ? `\nHọc sinh lớp ${options.grade}.`
     : '';
 
   if (isDemoMode()) {
@@ -72,10 +90,25 @@ export async function chatWithContext(messages, context) {
     };
   }
 
-  const reply = await chatComplete([
-    { role: 'system', content: CHAT_SYSTEM_PROMPT + contextBlock },
-    ...messages.map((m) => ({ role: m.role, content: m.content })),
-  ], { max_tokens: 1024, temperature: 0.6 });
+  const systemContent = [
+    studentBlock,
+    CHAT_SYSTEM_PROMPT,
+    persona,
+    gradeNote,
+    contextBlock,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const reply = await chatComplete(
+    [
+      { role: 'system', content: systemContent },
+      ...messages.map((m) => ({ role: m.role, content: m.content })),
+    ],
+    { max_tokens: 1024, temperature: 0.6 }
+  );
 
   return { reply: reply || 'Xin lỗi, tôi chưa trả lời được.', demo: false };
 }
+
+export { SYSTEM_PROMPT };

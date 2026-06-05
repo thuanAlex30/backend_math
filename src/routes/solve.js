@@ -13,7 +13,7 @@ const router = Router();
 
 router.post('/solve', async (req, res) => {
   try {
-    let { question, image } = req.body;
+    let { question, image, grade, mode, studentContext, compact } = req.body;
 
     if (image && !question?.trim()) {
       question = await extractTextFromImage(image);
@@ -26,7 +26,12 @@ router.post('/solve', async (req, res) => {
       return res.status(400).json({ error: 'Vui lòng nhập đề bài hoặc tải ảnh' });
     }
 
-    const result = await generateSolution(question);
+    const result = await generateSolution(question, {
+      mode: mode || 'full',
+      grade,
+      studentContext,
+      compact: compact === true,
+    });
     const steps = parseSteps(result.solution);
 
     res.json({ ...result, steps });
@@ -46,7 +51,17 @@ router.post('/solve-stream', async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
 
   try {
-    let { question, image, studentSessionId } = req.body;
+    let {
+      question,
+      image,
+      studentSessionId,
+      grade,
+      mode = 'full',
+      studentContext,
+      compact,
+      skipProfileUpdate,
+      profileCorrect,
+    } = req.body;
 
     if (image) {
       const ocrText = await extractTextFromImage(image);
@@ -60,14 +75,20 @@ router.post('/solve-stream', async (req, res) => {
       return res.end();
     }
 
-    // Graph RAG: phân loại chủ đề + context cá nhân hóa trước khi gọi AI
     const topicId = await classifyTopic(question);
     const personalizedContext = studentSessionId
       ? await buildPersonalizedContext(studentSessionId, question)
       : '';
 
+    const streamOptions = {
+      mode: mode === 'hint' ? 'hint' : 'full',
+      grade,
+      studentContext,
+      compact: compact === true,
+    };
+
     let fullText = '';
-    for await (const chunk of streamSolution(question, personalizedContext)) {
+    for await (const chunk of streamSolution(question, personalizedContext, streamOptions)) {
       if (chunk.token) {
         fullText += chunk.token;
         res.write(`data: ${JSON.stringify({ token: chunk.token })}\n\n`);
@@ -84,14 +105,20 @@ router.post('/solve-stream', async (req, res) => {
             visualization: parsed.visualization,
             steps,
             question,
+            topicId,
+            mode: streamOptions.mode,
             demo: isDemoMode(),
           })}\n\n`
         );
 
-        // Sau stream: cập nhật profile (học sinh nhờ giải = tín hiệu cần củng cố)
-        if (studentSessionId && topicId) {
+        // Cập nhật profile theo mode
+        if (studentSessionId && topicId && !skipProfileUpdate) {
           try {
-            await updateStudentProfile(studentSessionId, topicId, false);
+            if (profileCorrect === true) {
+              await updateStudentProfile(studentSessionId, topicId, true);
+            } else if (mode !== 'hint') {
+              await updateStudentProfile(studentSessionId, topicId, false);
+            }
           } catch (profileErr) {
             console.warn('Graph RAG profile update failed:', profileErr.message);
           }

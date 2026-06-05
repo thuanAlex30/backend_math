@@ -138,10 +138,10 @@ router.post('/english/reading/generate', async (req, res) => {
 
 router.post('/english/chat', async (req, res) => {
   try {
-    const { messages, level, role, grade, topicId } = req.body;
+    const { messages, level, role, grade, topicId, studentContext } = req.body;
     if (!messages?.length) return res.status(400).json({ error: 'Thiếu tin nhắn' });
     const g = parseGrade({ grade }) ?? 9;
-    const result = await englishChat(messages, { level, role, grade: g, topicId });
+    const result = await englishChat(messages, { level, role, grade: g, topicId, studentContext });
     res.json(result);
   } catch (e) {
     res.status(502).json({ error: e.message });

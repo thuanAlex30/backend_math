@@ -37,6 +37,7 @@ router.post('/generate-questions', async (req, res) => {
       subject = 'math',
       topic,
       numberOfQuestions = 5,
+      lastScore,
     } = req.body || {};
 
     if (!isValidSubject(subject)) {
@@ -59,6 +60,7 @@ router.post('/generate-questions', async (req, res) => {
       subject,
       topic,
       numberOfQuestions,
+      lastScore: lastScore != null ? Number(lastScore) : undefined,
     });
 
     res.json({

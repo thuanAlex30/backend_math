@@ -5,11 +5,15 @@ const router = Router();
 
 router.post('/chat', async (req, res) => {
   try {
-    const { messages, context } = req.body;
+    const { messages, context, tutorPersona, grade, studentContext } = req.body;
     if (!messages?.length) {
       return res.status(400).json({ error: 'Thiếu tin nhắn' });
     }
-    const result = await chatWithContext(messages, context);
+    const result = await chatWithContext(messages, context, {
+      tutorPersona,
+      grade,
+      studentContext,
+    });
     res.json(result);
   } catch (error) {
     console.error('Chat error:', error.message);

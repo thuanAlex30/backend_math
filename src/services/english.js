@@ -442,18 +442,26 @@ export function getPronunciationPractice(grade = 9) {
   };
 }
 
-export async function englishChat(messages, { grade = 9, level, role = 'teacher', topicId } = {}) {
+export async function englishChat(messages, { grade = 9, level, role = 'teacher', topicId, studentContext } = {}) {
   const g = resolveGrade(grade);
   const aiLevel = level || gradeToEnglishLevel(g);
   const roleHint = CHAT_ROLES[role] || CHAT_ROLES.teacher;
   const levelHint = LEVEL_HINTS[aiLevel] || LEVEL_HINTS.beginner;
   const curriculumHint = buildCurriculumPrompt('conversation', g);
 
+  let studentHint = '';
+  if (studentContext?.name) {
+    studentHint = `Học sinh tên ${studentContext.name}. `;
+  }
+  if (studentContext?.goals?.includes('english_exam')) {
+    studentHint += 'Mục tiêu nâng band/ôn thi — ưu tiên từ vựng học thuật và mẫu câu thi.';
+  }
+
   const reply = await chatComplete(
     [
       {
         role: 'system',
-        content: `${ENGLISH_TUTOR_PROMPT}\n\n${roleHint}\n\n${levelHint}\n\n${curriculumHint}`,
+        content: `${ENGLISH_TUTOR_PROMPT}\n\n${roleHint}\n\n${levelHint}\n\n${curriculumHint}${studentHint ? `\n\n${studentHint}` : ''}`,
       },
       ...messages.map((m) => ({ role: m.role, content: m.content })),
     ],

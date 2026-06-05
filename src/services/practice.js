@@ -110,9 +110,16 @@ export async function generatePracticeQuestions({
   subject,
   topic,
   numberOfQuestions = 5,
+  lastScore,
 }) {
   const count = Math.min(Math.max(Number(numberOfQuestions) || 5, 1), 10);
   const topicLabel = getTopicLabel(subject, grade, topic);
+
+  let difficultyHint = '';
+  if (lastScore != null) {
+    if (lastScore >= 80) difficultyHint = ' Tăng độ khó so với lần trước (học sinh đạt >=80%).';
+    else if (lastScore < 50) difficultyHint = ' Giảm độ khó, tập trung nền tảng (học sinh <50%).';
+  }
 
   if (isDemoMode()) {
     const questions = getFallbackQuestions(subject, grade, topic, count);
@@ -121,8 +128,8 @@ export async function generatePracticeQuestions({
 
   const prompt =
     subject === 'english'
-      ? buildEnglishPrompt(grade, topicLabel, count)
-      : buildMathPrompt(grade, topicLabel, count);
+      ? buildEnglishPrompt(grade, topicLabel, count) + difficultyHint
+      : buildMathPrompt(grade, topicLabel, count) + difficultyHint;
 
   try {
     const raw = await chatComplete(

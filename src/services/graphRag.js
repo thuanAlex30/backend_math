@@ -37,7 +37,7 @@ export async function ensureProfilesDir() {
   await mkdir(PROFILES_DIR, { recursive: true });
 }
 
-function sanitizeSessionId(sessionId) {
+export function sanitizeSessionId(sessionId) {
   return String(sessionId).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
 }
 
@@ -172,4 +172,94 @@ export async function buildPersonalizedContext(sessionId, question) {
   if (parts.length === 0) return '';
 
   return `[Graph RAG — Cá nhân hóa học sinh]\n${parts.join('\n')}`;
+}
+
+/** Trạng thái node theo profile */
+export function getTopicStatus(profile, topicId) {
+  const t = profile?.topics?.[topicId];
+  if (!t) return 'unknown';
+  if (t.errorCount > t.correctCount || t.errorCount >= 2) return 'weak';
+  if (t.correctCount > t.errorCount && t.correctCount >= 2) return 'strong';
+  return 'learning';
+}
+
+function severityFromEntry(entry) {
+  const diff = (entry?.errorCount || 0) - (entry?.correctCount || 0);
+  if (diff >= 3 || (entry?.errorCount || 0) >= 4) return 'high';
+  if (diff >= 1 || (entry?.errorCount || 0) >= 2) return 'medium';
+  return 'low';
+}
+
+/** Chủ đề yếu — sắp xếp theo mức độ nghiêm trọng */
+export function getWeakTopics(profile) {
+  if (!profile?.topics) return [];
+  return Object.entries(profile.topics)
+    .filter(([, e]) => e.errorCount > e.correctCount || e.errorCount >= 2)
+    .map(([id, e]) => ({
+      id,
+      name: NODE_BY_ID[id]?.name || id,
+      grade: NODE_BY_ID[id]?.grade || null,
+      severity: severityFromEntry(e),
+      errorCount: e.errorCount,
+      correctCount: e.correctCount,
+    }))
+    .sort((a, b) => b.errorCount - a.errorCount);
+}
+
+/** Chủ đề vững */
+export function getStrongTopics(profile) {
+  if (!profile?.topics) return [];
+  return Object.entries(profile.topics)
+    .filter(([, e]) => e.correctCount > e.errorCount && e.correctCount >= 2)
+    .map(([id, e]) => ({
+      id,
+      name: NODE_BY_ID[id]?.name || id,
+      grade: NODE_BY_ID[id]?.grade || null,
+      correctCount: e.correctCount,
+    }))
+    .sort((a, b) => b.correctCount - a.correctCount);
+}
+
+/** Prerequisite cần ôn cho chủ đề yếu */
+export function getPrerequisitesToReview(profile, weakTopicIds) {
+  const result = [];
+  const seen = new Set();
+  for (const topicId of weakTopicIds) {
+    const prereqs = traverseWeakPrerequisites(profile, MATH_GRAPH, topicId);
+    for (const node of prereqs) {
+      if (seen.has(node.id)) continue;
+      seen.add(node.id);
+      result.push({
+        id: node.id,
+        name: node.name,
+        forTopic: topicId,
+      });
+    }
+  }
+  return result;
+}
+
+/** Bản đồ kiến thức — nodes + edges kèm status */
+export function getKnowledgeMap(profile, gradeFilter) {
+  let nodes = MATH_GRAPH.nodes.map((n) => ({
+    ...n,
+    status: getTopicStatus(profile, n.id),
+    ...(profile?.topics?.[n.id] || {}),
+  }));
+  if (gradeFilter) {
+    const g = Number(gradeFilter);
+    nodes = nodes.filter((n) => n.grade === g);
+  }
+  return {
+    nodes,
+    edges: MATH_GRAPH.edges,
+  };
+}
+
+/** Ghi nhận kết quả luyện tập — cập nhật profile theo tỷ lệ đúng */
+export async function recordPracticeResult(sessionId, topicId, correct, total) {
+  if (!sessionId || !topicId || !total) return null;
+  const ratio = correct / total;
+  const isCorrect = ratio >= 0.8;
+  return updateStudentProfile(sessionId, topicId, isCorrect);
 }

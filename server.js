@@ -7,6 +7,10 @@ import chatRoutes from './src/routes/chat.js';
 import ttsRoutes from './src/routes/tts.js';
 import englishRoutes from './src/routes/english.js';
 import practiceRoutes from './src/routes/practice.js';
+import profileRoutes from './src/routes/profile.js';
+import leaderboardRoutes from './src/routes/leaderboard.js';
+import examRoutes from './src/routes/exam.js';
+import mathWritingRoutes from './src/routes/mathWriting.js';
 import { isDemoMode } from './src/services/hfRouter.js';
 import { ensureProfilesDir } from './src/services/graphRag.js';
 
@@ -46,6 +50,10 @@ app.use('/api', chatRoutes);
 app.use('/api', ttsRoutes);
 app.use('/api', englishRoutes);
 app.use('/api', practiceRoutes);
+app.use('/api', profileRoutes);
+app.use('/api', leaderboardRoutes);
+app.use('/api', examRoutes);
+app.use('/api', mathWritingRoutes);
 
 app.listen(PORT, () => {
   const demo = isDemoMode();
