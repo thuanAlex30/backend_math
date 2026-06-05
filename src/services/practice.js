@@ -59,7 +59,7 @@ function normalizeQuestion(raw, index) {
   };
 }
 
-function buildMathPrompt(grade, topicLabel, count) {
+export function buildMathPrompt(grade, topicLabel, count) {
   return `Bạn là giáo viên Toán lớp ${grade} tại Việt Nam. Hãy tạo đúng ${count} câu hỏi trắc nghiệm về chủ đề "${topicLabel}" cho học sinh lớp ${grade}.
 
 Yêu cầu:

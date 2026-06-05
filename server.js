@@ -14,6 +14,8 @@ import leaderboardRoutes from './src/routes/leaderboard.js';
 import examRoutes from './src/routes/exam.js';
 import mathWritingRoutes from './src/routes/mathWriting.js';
 import authRoutes from './src/routes/auth.js';
+import notificationRoutes from './src/routes/notifications.js';
+import socialRoutes from './src/routes/social.js';
 import { isDemoMode } from './src/services/hfRouter.js';
 import { ensureProfilesDir } from './src/services/graphRag.js';
 import { connectDatabase } from './src/config/database.js';
@@ -70,6 +72,8 @@ app.use('/api', profileRoutes);
 app.use('/api', leaderboardRoutes);
 app.use('/api', examRoutes);
 app.use('/api', mathWritingRoutes);
+app.use('/api', notificationRoutes);
+app.use('/api/social', socialRoutes);
 
 app.listen(PORT, () => {
   const demo = isDemoMode();
