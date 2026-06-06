@@ -1,4 +1,5 @@
 import express from 'express';
+import path from 'path';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
@@ -31,11 +32,12 @@ configurePassport();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const IS_PRODUCTION = process.env.RENDER === 'true' || process.env.NODE_ENV === 'production';
 
 app.use(
   cors({
-    origin: FRONTEND_URL,
-    credentials: true,
+    origin: IS_PRODUCTION ? false : FRONTEND_URL,
+    credentials: !IS_PRODUCTION,
   })
 );
 app.use(express.json({ limit: '15mb' }));
@@ -74,6 +76,15 @@ app.use('/api', examRoutes);
 app.use('/api', mathWritingRoutes);
 app.use('/api', notificationRoutes);
 app.use('/api/social', socialRoutes);
+
+// Serve static frontend (SPA) — cùng domain với API, tránh CORS & cookie cross-origin
+const DIST_DIR = path.join(import.meta.dirname, 'dist');
+app.use(express.static(DIST_DIR));
+
+// SPA fallback — mọi route không match API đều trả về index.html
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(DIST_DIR, 'index.html'));
+});
 
 app.listen(PORT, () => {
   const demo = isDemoMode();
