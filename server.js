@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
@@ -78,7 +79,8 @@ app.use('/api', notificationRoutes);
 app.use('/api/social', socialRoutes);
 
 // Serve static frontend (SPA) — cùng domain với API, tránh CORS & cookie cross-origin
-const DIST_DIR = path.join(import.meta.dirname, 'dist');
+const __dirname = import.meta.dirname ?? path.dirname(fileURLToPath(import.meta.url));
+const DIST_DIR = path.join(__dirname, 'dist');
 app.use(express.static(DIST_DIR));
 
 // SPA fallback — mọi route không match API đều trả về index.html
