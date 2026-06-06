@@ -40,8 +40,10 @@ app.set('trust proxy', 1);
 
 app.use(
   cors({
-    origin: IS_PRODUCTION ? false : FRONTEND_URL,
-    credentials: !IS_PRODUCTION,
+    origin: IS_PRODUCTION
+      ? process.env.ALLOWED_ORIGIN || process.env.FRONTEND_URL
+      : FRONTEND_URL,
+    credentials: true,
   })
 );
 app.use(express.json({ limit: '15mb' }));
