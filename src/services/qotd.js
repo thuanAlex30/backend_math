@@ -66,7 +66,9 @@ async function submitQotDAnswer(userId, questionDate, answer, timeSeconds) {
 
   const q = await getTodayQuestion();
   const isCorrect = String(answer).trim().toLowerCase() === String(q.solution).trim().toLowerCase();
-  const points = isCorrect ? Math.max(0, Math.round(50 * (1 - Math.min(timeSeconds || 0, 300) / 300)) + 50 : 0;
+  const points = isCorrect
+    ? Math.max(0, Math.round(50 * (1 - Math.min(timeSeconds || 0, 300) / 300)) + 50)
+    : 0;
 
   await QotdSubmission.create({
     userId,
