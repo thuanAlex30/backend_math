@@ -150,7 +150,7 @@ async function getUserQotDStats(userId) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const ds = d.toISOString().split('T')[0];
-    const sub = submissions.find((s: any) => s.dateString === ds);
+    const sub = submissions.find((s) => s.dateString === ds);
     last7Days.push({
       date: ds,
       correct: sub?.isCorrect ?? false,
