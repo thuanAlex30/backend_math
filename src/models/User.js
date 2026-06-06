@@ -145,6 +145,46 @@ const userSchema = new mongoose.Schema(
       totalPoints: { type: Number, default: 0 },
       lastSubmissionDate: String,
     },
+    // English Vocabulary Spaced Repetition Cards
+    vocabSRCards: [
+      {
+        wordId: String,        // `${topicId}-${word}`
+        word: String,
+        topicId: String,
+        ipa: String,
+        meaning: String,
+        example: String,
+        interval: { type: Number, default: 0 },
+        easeFactor: { type: Number, default: 2.5 },
+        repetitions: { type: Number, default: 0 },
+        nextReviewDate: String, // ISO date string YYYY-MM-DD
+        lastReviewDate: String,
+        createdAt: String,
+      },
+    ],
+    // English Gamification — XP, streak, badges (synced from frontend store)
+    englishStats: {
+      xp: { type: Number, default: 0 },
+      level: { type: Number, default: 1 },
+      streak: { type: Number, default: 0 },
+      lastStudyDate: String,
+      wordsLearned: { type: Number, default: 0 },
+      pronunciationScore: { type: Number, default: 0 },
+      listeningScore: { type: Number, default: 0 },
+      writingScore: { type: Number, default: 0 },
+      totalStudyMinutes: { type: Number, default: 0 },
+      weeklyProgress: { type: [Number], default: [0, 0, 0, 0, 0, 0, 0] },
+      // Skills practiced (vocab | grammar | pronunciation | listening | reading | writing | chat)
+      skillsPracticed: {
+        vocab: { type: Number, default: 0 },
+        grammar: { type: Number, default: 0 },
+        pronunciation: { type: Number, default: 0 },
+        listening: { type: Number, default: 0 },
+        reading: { type: Number, default: 0 },
+        writing: { type: Number, default: 0 },
+        chat: { type: Number, default: 0 },
+      },
+    },
   },
   {
     timestamps: { createdAt: true, updatedAt: false },
@@ -160,6 +200,7 @@ userSchema.methods.toPublicJSON = function toPublicJSON() {
     role: this.role,
     grade: this.grade,
     createdAt: this.createdAt,
+    englishStats: this.englishStats,
   };
 };
 

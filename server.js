@@ -18,6 +18,7 @@ import mathWritingRoutes from './src/routes/mathWriting.js';
 import authRoutes from './src/routes/auth.js';
 import notificationRoutes from './src/routes/notifications.js';
 import socialRoutes from './src/routes/social.js';
+import vocabSrRoutes from './src/routes/vocabSr.js';
 import { isDemoMode } from './src/services/hfRouter.js';
 import { ensureProfilesDir } from './src/services/graphRag.js';
 import { connectDatabase } from './src/config/database.js';
@@ -82,6 +83,7 @@ app.use('/api', examRoutes);
 app.use('/api', mathWritingRoutes);
 app.use('/api', notificationRoutes);
 app.use('/api/social', socialRoutes);
+app.use('/api', vocabSrRoutes);
 
 // Serve static frontend (SPA) — cùng domain với API, tránh CORS & cookie cross-origin
 const __dirname = import.meta.dirname ?? path.dirname(fileURLToPath(import.meta.url));

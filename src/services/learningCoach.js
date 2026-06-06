@@ -100,17 +100,29 @@ async function generateCoachingMessage(userId, focusArea = null) {
   try {
     const analysis = await analyzePracticeHistory(userId);
     const user = await User.findById(userId);
-    
-    const studentName = user?.name?.split(' ')[0] || 'Student';
+
+    const studentName = user?.name?.split(' ')[0] || 'Học sinh';
     const isDemoMode = process.env.HUGGINGFACE_API_KEY === 'demo_mode';
-    
+
+    // User chưa có practice history → trả message mặc định
+    if (!analysis.stats) {
+      return {
+        message: `Chào ${studentName}! Chào mừng bạn đến với GiaSư AI. Hãy bắt đầu giải vài bài Toán để tôi hiểu rõ trình độ của bạn nhé!`,
+        timestamp: new Date(),
+        focusArea: null,
+        nextSteps: [
+          'Giải 3-5 bài Toán để hệ thống hiểu bạn học tốt chủ đề nào',
+          'Dùng tab Hôm nay để xem kế hoạch học tập cá nhân',
+          'Thử thách bạn bè ở mục Xã hội để học vui hơn!',
+        ],
+      };
+    }
+
     let message;
-    
+
     if (isDemoMode) {
-      // Demo mode response
       message = generateDemoCoachingMessage(studentName, analysis, focusArea);
     } else {
-      // Use AI to generate personalized message
       try {
         const prompt = buildCoachingPrompt(studentName, analysis, focusArea);
         const response = await chatComplete([
@@ -123,7 +135,7 @@ async function generateCoachingMessage(userId, focusArea = null) {
         message = generateDemoCoachingMessage(studentName, analysis, focusArea);
       }
     }
-    
+
     return {
       message,
       timestamp: new Date(),

@@ -14,7 +14,12 @@ import {
 } from './hfRouter.js';
 
 export async function generateSolution(question, options = {}) {
-  const systemPrompt = resolveSystemPrompt(options);
+  const { personalizedContext, ...restOptions } = options;
+  let systemPrompt = resolveSystemPrompt(restOptions);
+  if (personalizedContext) {
+    systemPrompt = `${personalizedContext}\n\n${systemPrompt}`;
+  }
+
   if (isDemoMode()) {
     const demo = getDemoSolution(question);
     return {

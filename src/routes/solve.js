@@ -13,7 +13,7 @@ const router = Router();
 
 router.post('/solve', async (req, res) => {
   try {
-    let { question, image, grade, mode, studentContext, compact } = req.body;
+    let { question, image, grade, mode, studentContext, compact, studentSessionId } = req.body;
 
     if (image && !question?.trim()) {
       question = await extractTextFromImage(image);
@@ -26,15 +26,29 @@ router.post('/solve', async (req, res) => {
       return res.status(400).json({ error: 'Vui lòng nhập đề bài hoặc tải ảnh' });
     }
 
+    // Graph RAG: xây context cá nhân hóa
+    const topicId = studentSessionId ? await classifyTopic(question) : null;
+    const personalizedContext = studentSessionId
+      ? await buildPersonalizedContext(studentSessionId, question)
+      : '';
+
     const result = await generateSolution(question, {
       mode: mode || 'full',
       grade,
       studentContext,
       compact: compact === true,
+      personalizedContext,
     });
     const steps = parseSteps(result.solution);
 
-    res.json({ ...result, steps });
+    // Cập nhật profile sau khi solve xong
+    if (studentSessionId && topicId && mode !== 'hint') {
+      try {
+        await updateStudentProfile(studentSessionId, topicId, false);
+      } catch {}
+    }
+
+    res.json({ ...result, steps, topicId });
   } catch (error) {
     console.error('Solve error:', error.message);
     res.status(502).json({

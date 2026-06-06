@@ -8,6 +8,29 @@ const PROFILES_DIR = path.join(__dirname, '../../data/profiles');
 
 /** Keyword tiếng Việt / không dấu → node id (ưu tiên cụm dài trước) */
 const TOPIC_KEYWORDS = [
+  // === Lớp 6 ===
+  { id: 'so_huu_tu', patterns: ['sở hữu', 'sở hữu cách', 'possessive', "'s", "who's", "Mike's"] },
+  { id: 'so_sanh', patterns: ['so sánh', 'so sanh', 'comparative', 'superlative', 'hơn', 'nhất'] },
+  { id: 'hien_tai_don', patterns: ['hiện tại đơn', 'hien tai don', 'present simple', 'thường hiện tại', 'S + V'] },
+  { id: 'tuan_tra', patterns: ['từ vựng', 'tu vung', 'vocabulary', 'từ mới', 'word list'] },
+  { id: 'tu_dien', patterns: ['từ điển', 'tu dien', 'dictionary'] },
+  { id: 'doc_hieu', patterns: ['đọc hiểu', 'doc hieu', 'reading comprehension', 'bài đọc'] },
+  // === Lớp 7 ===
+  { id: 'past_simple', patterns: ['quá khứ đơn', 'past simple', 'quá khứ thì', 'yesterday', 'last week'] },
+  { id: 'future_be_going_to', patterns: ['tương lai gần', 'going to', 'sẽ', 'dự định', 'plan'] },
+  { id: 'hien_tai_tien_don', patterns: ['hiện tại tiến diễn', 'hien tai tien dien', 'present continuous', 'đang làm'] },
+  // === Lớp 8 ===
+  { id: 'present_perfect', patterns: ['hiện tại hoàn thành', 'present perfect', 'đã làm rồi', 'already', 'yet', 'just'] },
+  { id: 'bi_form', patterns: ['bị thể', 'bi dong tu', 'bị động', 'passive voice', 'was/were'] },
+  { id: 'dieu_kien_loai_1', patterns: ['điều kiện loại 1', 'conditional type 1', 'if + present', 'will'] },
+  { id: 'tinh_ten', patterns: ['tính từ', 'tinh tu', 'adjective', 'mô tả'] },
+  { id: 'trang_tu', patterns: ['trạng từ', 'trang tu', 'adverb', 'how', 'where', 'when'] },
+  // === Lớp 9 ===
+  { id: 'past_perfect', patterns: ['quá khứ hoàn thành', 'past perfect', 'had + V3', 'before'] },
+  { id: 'indirect_speech', patterns: ['câu tường thuật', 'reported speech', 'indirect speech', 'said that'] },
+  { id: 'dieu_kien_loai_2', patterns: ['điều kiện loại 2', 'conditional type 2', 'if + past', 'would'] },
+  { id: 'menh_de_quan_he', patterns: ['mệnh đề quan hệ', 'menh de quan he', 'relative clause', 'who', 'which', 'that'] },
+  // === Lớp 10–12 (existing math topics) ===
   { id: 'tich_phan_ung_dung', patterns: ['ứng dụng tích phân', 'ung dung tich phan', 'diện tích giới hạn'] },
   { id: 'dao_ham_ung_dung', patterns: ['ứng dụng đạo hàm', 'ung dung dao ham', 'cực trị', 'cuc tri', 'tiệm cận'] },
   { id: 'hinh_hoc_giai_tich', patterns: ['hình học giải tích', 'hinh hoc giai tich'] },

@@ -197,7 +197,11 @@ router.post('/qotd/submit', verifyToken, async (req, res) => {
     const result = await qotd.submitQotDAnswer(req.user.id, questionDate, answer, timeSeconds);
     res.json({ success: true, result });
   } catch (error) {
-    console.error('Error submitting QotD answer:', error);
+    // "already submitted" là expected flow — không in error rác
+    if (error.message.includes('already submitted')) {
+      return res.status(409).json({ error: error.message });
+    }
+    console.error('Error submitting QotD answer:', error.message);
     res.status(500).json({ error: error.message });
   }
 });

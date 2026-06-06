@@ -1,0 +1,49 @@
+{
+  "sessionId": "f99ba0c9-971c-48ca-9310-25249c582a09",
+  "date": "2026-06-06",
+  "grade": 12,
+  "tasks": [
+    {
+      "id": "math-ffjl22",
+      "type": "math",
+      "title": "Luyện 5 câu Phương trình",
+      "description": "Chủ đề em đang cần củng cố: Phương trình",
+      "ctaLabel": "Luyện ngay",
+      "ctaRoute": "/tutor",
+      "ctaParams": {
+        "mode": "practice",
+        "topic": "phuong_trinh",
+        "topicName": "Phương trình"
+      },
+      "estimatedMinutes": 15,
+      "completed": false
+    },
+    {
+      "id": "english-fiqfgv",
+      "type": "english",
+      "title": "Ôn 10 từ vựng hoặc nghe 3 phút",
+      "description": "Theo chương trình lớp 12",
+      "ctaLabel": "Học Anh",
+      "ctaRoute": "/english",
+      "ctaParams": {
+        "module": "vocab",
+        "grade": 12
+      },
+      "estimatedMinutes": 10,
+      "completed": false
+    },
+    {
+      "id": "review-g30ssj",
+      "type": "review",
+      "title": "Ôn nhanh 3 câu",
+      "description": "Quiz mixed từ các bài đã giải gần đây",
+      "ctaLabel": "Ôn ngay",
+      "ctaRoute": "/tutor",
+      "ctaParams": {
+        "mode": "practice"
+      },
+      "estimatedMinutes": 8,
+      "completed": false
+    }
+  ]
+}
