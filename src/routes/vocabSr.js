@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import User from '../models/User.js';
 import { verifyToken } from '../middleware/verifyToken.js';
+import { sm2Update } from '../services/spacedRepetition.js';
 
 const router = Router();
 
@@ -99,7 +100,23 @@ router.put('/vocab-sr/:wordId', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Không tìm thấy thẻ từ vựng' });
     }
 
-    if (quality !== undefined) card.repetitions = repetitions ?? card.repetitions ?? 0;
+    // Chạy SM-2 algorithm nếu có quality
+    if (quality !== undefined) {
+      const sm2Result = sm2Update(
+        {
+          interval: card.interval ?? 0,
+          easeFactor: card.easeFactor ?? 2.5,
+          repetitions: card.repetitions ?? 0,
+        },
+        Number(quality)
+      );
+      card.interval = sm2Result.interval;
+      card.easeFactor = sm2Result.easeFactor;
+      card.repetitions = sm2Result.repetitions;
+      card.nextReviewDate = sm2Result.nextReviewDate;
+    }
+
+    // Override bằng giá trị client gửi (nếu có)
     if (nextReviewDate) card.nextReviewDate = nextReviewDate;
     if (interval !== undefined) card.interval = interval;
     if (easeFactor !== undefined) card.easeFactor = easeFactor;

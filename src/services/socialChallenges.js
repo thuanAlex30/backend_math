@@ -1,222 +1,233 @@
 /**
- * Social Challenges Service
- * Manages peer-to-peer math challenges and competitions
+ * socialChallenges.js — Social Challenge Service
+ *
+ * Storage: MongoDB (Challenge collection)
+ * Migration: hiện dùng User.socialChallenges[], chuyển sang collection riêng
+ *
+ * Logic giữ nguyên — chỉ thay storage.
  */
 
 import mongoose from 'mongoose';
 import User from '../models/User.js';
+import Challenge from '../models/Challenge.js';
 
 /**
- * Create a new social challenge
+ * Tạo challenge mới
  */
 async function createChallenge(challengerUserId, opponentUserId, problem, difficulty, timeLimit = 600) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
-    
-    // Get challenger info
-    const challenger = await User.findById(challengerUserId);
+    const challenger = await User.findById(challengerUserId).session(session);
+    const opponent = await User.findById(opponentUserId).session(session);
     if (!challenger) throw new Error('Challenger not found');
-    
-    // Get opponent info
-    const opponent = await User.findById(opponentUserId);
     if (!opponent) throw new Error('Opponent not found');
-    
-    // Create challenge object
-    const challenge = {
-      _id: new mongoose.Types.ObjectId(),
+
+    const challenge = await Challenge.createChallenge({
       challengerId: challengerUserId,
       opponentId: opponentUserId,
-      challengerName: challenger.name || 'Anonymous',
-      opponentName: opponent.name || 'Anonymous',
-      problem: problem,
-      difficulty: difficulty,
-      timeLimit: timeLimit,
-      status: 'pending', // pending, accepted, completed
-      createdAt: new Date(),
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-      challengerScore: null,
-      opponentScore: null,
-      challengerTime: null,
-      opponentTime: null,
-      winner: null
-    };
-    
-    // Add to both users' challenges arrays
-    if (!challenger.socialChallenges) challenger.socialChallenges = [];
-    if (!opponent.socialChallenges) opponent.socialChallenges = [];
-    
-    challenger.socialChallenges.push(challenge);
-    opponent.socialChallenges.push(challenge);
-    
-    await challenger.save();
-    await opponent.save();
-    
+      challengerName: challenger.name || 'Học sinh ẩn danh',
+      opponentName: opponent.name || 'Học sinh ẩn danh',
+      problem,
+      difficulty,
+      timeLimit,
+    });
+
+    await session.commitTransaction();
     return challenge;
   } catch (error) {
-    console.error('Error creating challenge:', error);
+    await session.abortTransaction();
     throw error;
+  } finally {
+    session.endSession();
   }
 }
 
 /**
- * Accept a challenge
+ * Chấp nhận challenge
  */
 async function acceptChallenge(userId, challengeId) {
-  try {
-    const user = await User.findById(userId);
-    
-    if (!user) throw new Error('User not found');
-    if (!user.socialChallenges) user.socialChallenges = [];
-    
-    const challenge = user.socialChallenges.find(c => c._id.toString() === challengeId);
-    if (!challenge) throw new Error('Challenge not found');
-    
-    challenge.status = 'accepted';
-    await user.save();
-    
-    return challenge;
-  } catch (error) {
-    console.error('Error accepting challenge:', error);
-    throw error;
+  const challenge = await Challenge.findById(challengeId);
+  if (!challenge) throw new Error('Challenge not found');
+
+  if (challenge.opponentId.toString() !== userId.toString()) {
+    throw new Error('Bạn không phải người được nhận thách thức này');
   }
+  if (challenge.status !== 'pending') {
+    throw new Error('Challenge không còn ở trạng thái pending');
+  }
+
+  challenge.accept();
+  await challenge.save();
+  return challenge;
 }
 
 /**
- * Submit challenge result
+ * Nộp kết quả challenge
  */
 async function submitChallengeResult(userId, challengeId, score, timeSeconds) {
-  try {
-    const user = await User.findById(userId);
-    
-    if (!user) throw new Error('User not found');
-    if (!user.socialChallenges) user.socialChallenges = [];
-    
-    const challenge = user.socialChallenges.find(c => c._id.toString() === challengeId);
-    if (!challenge) throw new Error('Challenge not found');
-    
-    // Record the result
-    if (challenge.challengerId.toString() === userId.toString()) {
-      challenge.challengerScore = score;
-      challenge.challengerTime = timeSeconds;
-    } else {
-      challenge.opponentScore = score;
-      challenge.opponentTime = timeSeconds;
-    }
-    
-    // Determine winner if both have submitted
-    if (challenge.challengerScore !== null && challenge.opponentScore !== null) {
-      challenge.status = 'completed';
-      
-      if (challenge.challengerScore > challenge.opponentScore) {
-        challenge.winner = challenge.challengerId;
-      } else if (challenge.opponentScore > challenge.challengerScore) {
-        challenge.winner = challenge.opponentId;
-      } else {
-        challenge.winner = 'draw';
-      }
-    } else {
-      challenge.status = 'in-progress';
-    }
-    
-    await user.save();
-    
-    // Update opponent user as well
-    const opponent = await User.findById(challenge.opponentId);
-    if (opponent && opponent.socialChallenges) {
-      const opponentChallenge = opponent.socialChallenges.find(c => c._id.toString() === challengeId);
-      if (opponentChallenge) {
-        Object.assign(opponentChallenge, challenge);
-        await opponent.save();
-      }
-    }
-    
-    return challenge;
-  } catch (error) {
-    console.error('Error submitting challenge result:', error);
-    throw error;
-  }
+  const challenge = await Challenge.findById(challengeId);
+  if (!challenge) throw new Error('Challenge not found');
+
+  const isParticipant =
+    challenge.challengerId.toString() === userId.toString() ||
+    challenge.opponentId.toString() === userId.toString();
+
+  if (!isParticipant) throw new Error('Bạn không tham gia challenge này');
+
+  challenge.submitResult(userId, score, timeSeconds);
+  await challenge.save();
+  return challenge;
 }
 
 /**
- * Get user's challenges
+ * Lấy danh sách challenge của user
  */
 async function getUserChallenges(userId, filter = 'all') {
-  try {
-    const user = await User.findById(userId);
-    
-    if (!user) throw new Error('User not found');
-    if (!user.socialChallenges) return [];
-    
-    let challenges = [...user.socialChallenges];
-    
-    if (filter === 'pending') {
-      challenges = challenges.filter(c => c.status === 'pending');
-    } else if (filter === 'active') {
-      challenges = challenges.filter(c => c.status === 'in-progress');
-    } else if (filter === 'completed') {
-      challenges = challenges.filter(c => c.status === 'completed');
-    }
-    
-    return challenges.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  } catch (error) {
-    console.error('Error getting user challenges:', error);
-    throw error;
-  }
+  return Challenge.findByUser(userId, filter);
 }
 
 /**
- * Get leaderboard for challenges
+ * Lấy challenge leaderboard — lean query + JS aggregation
+ * Đáng tin cậy hơn pipeline phức tạp
  */
 async function getChallengeLeaderboard(limit = 50) {
   try {
-    const users = await User.find({}, { 
-      name: 1, 
-      avatar: 1, 
-      socialChallenges: 1,
-      grade: 1,
-      subject: 1
+    const challenges = await Challenge.find({ status: 'completed' })
+      .populate('challengerId', 'name avatar grade')
+      .populate('opponentId', 'name avatar grade')
+      .lean();
+
+    const userStats = {};
+
+    for (const ch of challenges) {
+      const challengerId = ch.challengerId?._id?.toString();
+      const opponentId = ch.opponentId?._id?.toString();
+
+      for (const entry of [
+        { uid: challengerId, role: 'challenger' },
+        { uid: opponentId, role: 'opponent' },
+      ]) {
+        if (!entry.uid) continue;
+
+        if (!userStats[entry.uid]) {
+          const userDoc = entry.role === 'challenger' ? ch.challengerId : ch.opponentId;
+          userStats[entry.uid] = {
+            userId: entry.uid,
+            name: userDoc?.name || 'Học sinh ẩn danh',
+            avatar: userDoc?.avatar || null,
+            grade: userDoc?.grade || null,
+            wins: 0,
+            totalScore: 0,
+            totalTime: 0,
+            played: 0,
+          };
+        }
+
+        const stats = userStats[entry.uid];
+        stats.played += 1;
+
+        const myResult = entry.role === 'challenger'
+          ? ch.challengerResult
+          : ch.opponentResult;
+        stats.totalScore += myResult?.score ?? 0;
+        stats.totalTime += myResult?.timeSeconds ?? 0;
+
+        if (ch.winnerId && ch.winnerId.toString() === entry.uid) {
+          stats.wins += 1;
+        } else if (ch.isDraw) {
+          stats.wins += 0.5;
+        }
+      }
+    }
+
+    const entries = Object.values(userStats);
+    entries.sort((a, b) => {
+      if (b.wins !== a.wins) return b.wins - a.wins;
+      const aAvg = a.played > 0 ? a.totalScore / a.played : 0;
+      const bAvg = b.played > 0 ? b.totalScore / b.played : 0;
+      return bAvg - aAvg;
     });
-    
-    const leaderboard = users
-      .map(user => {
-        const challenges = user.socialChallenges || [];
-        const completedChallenges = challenges.filter(c => c.status === 'completed');
-        
-        let wins = 0;
-        let totalScore = 0;
-        
-        completedChallenges.forEach(challenge => {
-          if (challenge.winner === user._id.toString()) {
-            wins++;
-          }
-          if (challenge.challengerId.toString() === user._id.toString()) {
-            totalScore += challenge.challengerScore || 0;
-          } else {
-            totalScore += challenge.opponentScore || 0;
-          }
-        });
-        
-        return {
-          userId: user._id,
-          name: user.name || 'Anonymous',
-          avatar: user.avatar,
-          grade: user.grade,
-          subject: user.subject,
-          wins: wins,
-          totalChallenges: completedChallenges.length,
-          winRate: completedChallenges.length > 0 ? (wins / completedChallenges.length * 100).toFixed(2) : 0,
-          totalScore: totalScore,
-          avgScore: completedChallenges.length > 0 ? (totalScore / completedChallenges.length).toFixed(2) : 0
-        };
-      })
-      .filter(entry => entry.totalChallenges > 0)
-      .sort((a, b) => b.wins - a.wins || b.avgScore - a.avgScore)
-      .slice(0, limit);
-    
-    return leaderboard;
-  } catch (error) {
-    console.error('Error getting leaderboard:', error);
-    throw error;
+
+    return entries.slice(0, limit).map((e, idx) => ({
+      userId: e.userId,
+      name: e.name,
+      avatar: e.avatar,
+      grade: e.grade,
+      wins: Math.round(e.wins * 2) / 2,
+      totalChallenges: e.played,
+      winRate: e.played > 0
+        ? ((e.wins / e.played) * 100).toFixed(2)
+        : '0.00',
+      totalScore: e.totalScore,
+      avgScore: e.played > 0
+        ? (e.totalScore / e.played).toFixed(2)
+        : '0.00',
+      rank: idx + 1,
+    }));
+  } catch (err) {
+    console.error('[challenge leaderboard] error, using fallback:', err.message);
+    return getChallengeLeaderboardFallback(limit);
   }
+}
+
+/**
+ * Fallback: query User.collection (chạy khi Challenge collection chưa có data)
+ */
+async function getChallengeLeaderboardFallback(limit = 50) {
+  const users = await User.find({}, {
+    name: 1,
+    avatar: 1,
+    socialChallenges: 1,
+    grade: 1,
+  }).lean();
+
+  const ranked = users
+    .map((user) => {
+      const challenges = user.socialChallenges || [];
+      const completed = challenges.filter((c) => c.status === 'completed');
+
+      let wins = 0;
+      let totalScore = 0;
+
+      for (const challenge of completed) {
+        const isWinner =
+          challenge.winner &&
+          challenge.winner.toString() === user._id.toString();
+        if (isWinner) wins++;
+
+        if (challenge.challengerId?.toString() === user._id.toString()) {
+          totalScore += challenge.challengerScore || 0;
+        } else {
+          totalScore += challenge.opponentScore || 0;
+        }
+      }
+
+      return {
+        userId: user._id.toString(),
+        name: user.name || 'Học sinh ẩn danh',
+        avatar: user.avatar,
+        grade: user.grade,
+        wins,
+        totalChallenges: completed.length,
+        winRate: completed.length > 0
+          ? ((wins / completed.length) * 100).toFixed(2)
+          : '0.00',
+        totalScore,
+        avgScore: completed.length > 0
+          ? (totalScore / completed.length).toFixed(2)
+          : '0.00',
+      };
+    })
+    .filter((entry) => entry.totalChallenges > 0)
+    .sort((a, b) => {
+      if (b.wins !== a.wins) return b.wins - a.wins;
+      return parseFloat(b.avgScore) - parseFloat(a.avgScore);
+    })
+    .slice(0, limit);
+
+  return ranked.map((entry, idx) => ({ ...entry, rank: idx + 1 }));
 }
 
 export {
@@ -224,5 +235,5 @@ export {
   acceptChallenge,
   submitChallengeResult,
   getUserChallenges,
-  getChallengeLeaderboard
+  getChallengeLeaderboard,
 };

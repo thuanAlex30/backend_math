@@ -1,7 +1,10 @@
 /**
- * In-memory TTL cache cho English Leaderboard
- * Cache 5 phút, tránh query MongoDB mỗi request
+ * leaderboardCache.js — In-memory TTL cache cho English Leaderboard
+ *
+ * Cache 5 phút trong memory → giảm query MongoDB
+ * Tự động invalidate khi có sync stats mới
  */
+
 import { getEnglishLeaderboard as fetchFromDb } from './englishLeaderboard.js';
 
 const LEADERBOARD_TTL_MS = 5 * 60 * 1000; // 5 phút
@@ -16,7 +19,7 @@ export async function getEnglishLeaderboard(limit = 50) {
   }
 
   try {
-    cachedLeaderboard = await fetchFromDb(200); // fetch extra for future limits
+    cachedLeaderboard = await fetchFromDb(200); // fetch extra cho future limits
     cacheTimestamp = now;
   } catch (err) {
     console.error('[leaderboard cache] fetch error:', err.message);
@@ -30,4 +33,5 @@ export async function getEnglishLeaderboard(limit = 50) {
 export function invalidateLeaderboardCache() {
   cachedLeaderboard = null;
   cacheTimestamp = 0;
+  console.log('[leaderboardCache] Cache invalidated');
 }

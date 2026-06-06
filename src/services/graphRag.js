@@ -1,7 +1,17 @@
+/**
+ * graphRag.js — Graph RAG Service cho Math
+ *
+ * Storage: MongoDB (StudentMathProfile collection)
+ * Fallback: file JSON nếu MongoDB chưa migrate
+ *
+ * Logic giữ nguyên — chỉ thay storage backend.
+ */
+
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { MATH_GRAPH, NODE_BY_ID } from '../data/mathGraph.js';
+import StudentMathProfile from '../models/StudentMathProfile.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROFILES_DIR = path.join(__dirname, '../../data/profiles');
@@ -115,6 +125,49 @@ export function sanitizeSessionId(sessionId) {
   return String(sessionId).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
 }
 
+// ─── MongoDB Storage (primary) ────────────────────────────────────────────────
+
+/**
+ * Đọc profile học sinh từ MongoDB
+ * Fallback: tạo profile mới nếu chưa có
+ */
+export async function getStudentProfile(sessionId) {
+  if (!sessionId) return null;
+
+  try {
+    let profile = await StudentMathProfile.findOne({ studentSessionId: sessionId }).lean();
+    return profile;
+  } catch (err) {
+    // MongoDB chưa connect hoặc lỗi → fallback file JSON
+    console.warn('[graphRag] MongoDB unavailable, falling back to JSON file:', err.message);
+    return getStudentProfileFromJson(sessionId);
+  }
+}
+
+/**
+ * Cập nhật profile sau mỗi lần làm bài.
+ * isCorrect: true → correctCount++, false → errorCount++
+ */
+export async function updateStudentProfile(sessionId, topicId, isCorrect) {
+  if (!sessionId || !topicId) return null;
+
+  try {
+    let profile = await StudentMathProfile.findOne({ studentSessionId: sessionId });
+    if (!profile) {
+      profile = new StudentMathProfile({ studentSessionId: sessionId });
+    }
+    profile.recordAttempt(topicId, isCorrect);
+    await profile.save();
+    return profile;
+  } catch (err) {
+    // Fallback: file JSON
+    console.warn('[graphRag] MongoDB update failed, falling back to JSON:', err.message);
+    return updateStudentProfileJson(sessionId, topicId, isCorrect);
+  }
+}
+
+// ─── File JSON Fallback (giữ nguyên — chạy khi MongoDB chưa migrate) ─────────
+
 function profilePath(sessionId) {
   return path.join(PROFILES_DIR, `${sanitizeSessionId(sessionId)}.json`);
 }
@@ -123,8 +176,7 @@ function emptyProfile(sessionId) {
   return { sessionId: sanitizeSessionId(sessionId), topics: {} };
 }
 
-/** Đọc profile học sinh từ JSON local */
-export async function getStudentProfile(sessionId) {
+async function getStudentProfileFromJson(sessionId) {
   if (!sessionId) return null;
   await ensureProfilesDir();
   const fp = profilePath(sessionId);
@@ -137,14 +189,10 @@ export async function getStudentProfile(sessionId) {
   }
 }
 
-/**
- * Cập nhật profile sau mỗi lần làm bài.
- * isCorrect: true → correctCount++, false → errorCount++ (học sinh cần trợ giúp / chưa vững)
- */
-export async function updateStudentProfile(sessionId, topicId, isCorrect) {
-  if (!sessionId || !topicId) return;
+async function updateStudentProfileJson(sessionId, topicId, isCorrect) {
+  if (!sessionId || !topicId) return null;
   await ensureProfilesDir();
-  const profile = (await getStudentProfile(sessionId)) || emptyProfile(sessionId);
+  const profile = (await getStudentProfileFromJson(sessionId)) || emptyProfile(sessionId);
   if (!profile.topics[topicId]) {
     profile.topics[topicId] = { errorCount: 0, correctCount: 0, lastSeen: null };
   }
@@ -162,19 +210,48 @@ export async function classifyTopic(question) {
 }
 
 /**
+ * Build context string từ profile (hỗ trợ cả MongoDB Map và JSON object)
+ */
+function getTopicEntry(profile, topicId) {
+  if (!profile) return null;
+  const topics = profile.topics;
+  if (!topics) return null;
+  // MongoDB Map → .get(), JSON object → []
+  if (typeof topics.get === 'function') return topics.get(topicId);
+  return topics[topicId];
+}
+
+/**
+ * Duyệt weak prerequisites (hỗ trợ cả MongoDB Map và JSON object)
+ */
+function isTopicWeakInProfile(profile, topicId) {
+  if (!topicId || !profile?.topics) return false;
+  const entry = getTopicEntry(profile, topicId);
+  if (!entry) return false;
+  const errorCount = entry.consecutiveWrong ?? entry.errorCount ?? 0;
+  const correctCount = entry.consecutiveCorrect ?? entry.correctCount ?? 0;
+  return errorCount > correctCount || errorCount >= 2;
+}
+
+function getAllTopicIds(profile) {
+  if (!profile?.topics) return [];
+  const topics = profile.topics;
+  if (typeof topics.keys === 'function') return [...topics.keys()];
+  return Object.keys(topics);
+}
+
+/**
  * Duyệt graph ngược từ topicId — tìm prerequisite chưa vững trong profile.
  * Coi "yếu" khi errorCount > correctCount hoặc errorCount >= 2.
  */
 export function traverseWeakPrerequisites(profile, mathGraph, topicId) {
-  if (!topicId || !profile?.topics) return [];
+  if (!topicId) return [];
 
   const weak = new Set();
   const visited = new Set();
 
   function isWeak(nodeId) {
-    const t = profile.topics[nodeId];
-    if (!t) return false;
-    return t.errorCount > t.correctCount || t.errorCount >= 2;
+    return isTopicWeakInProfile(profile, nodeId);
   }
 
   function walkPrereqs(targetId) {
@@ -195,7 +272,6 @@ export function traverseWeakPrerequisites(profile, mathGraph, topicId) {
 
   walkPrereqs(topicId);
 
-  // Chủ đề hiện tại cũng yếu → thêm vào danh sách
   if (isWeak(topicId)) {
     weak.add(topicId);
   }
@@ -215,13 +291,17 @@ export async function buildPersonalizedContext(sessionId, question) {
 
   const parts = [];
 
-  if (topicId && profile.topics[topicId]) {
-    const t = profile.topics[topicId];
-    const node = NODE_BY_ID[topicId];
-    if (t.errorCount > t.correctCount || t.errorCount >= 2) {
-      parts.push(
-        `Học sinh này đang yếu: ${node?.name || topicId} (sai/nhờ giúp ${t.errorCount} lần, đúng ${t.correctCount} lần).`
-      );
+  if (topicId) {
+    const entry = getTopicEntry(profile, topicId);
+    if (entry) {
+      const errorCount = entry.consecutiveWrong ?? entry.errorCount ?? 0;
+      const correctCount = entry.consecutiveCorrect ?? entry.correctCount ?? 0;
+      const node = NODE_BY_ID[topicId];
+      if (errorCount > correctCount || errorCount >= 2) {
+        parts.push(
+          `Học sinh này đang yếu: ${node?.name || topicId} (sai/nhờ giúp ${errorCount} lần, đúng ${correctCount} lần).`
+        );
+      }
     }
   }
 
@@ -238,40 +318,62 @@ export async function buildPersonalizedContext(sessionId, question) {
   return `[Graph RAG — Cá nhân hóa học sinh]\n${parts.join('\n')}`;
 }
 
+/** Lấy entry từ topics (hỗ trợ cả MongoDB Map và JSON object) */
+function getEntry(topics, topicId) {
+  if (!topics) return null;
+  if (typeof topics.get === 'function') return topics.get(topicId);
+  return topics[topicId];
+}
+
+function getAllEntries(topics) {
+  if (!topics) return [];
+  if (typeof topics.entries === 'function') return [...topics.entries()];
+  return Object.entries(topics);
+}
+
 /** Kiểm tra xem topic có được coi là "đã thành thạo" chưa */
 export function isTopicMastered(entry) {
   if (!entry) return false;
-  return entry.correctCount >= MASTERY_THRESHOLD;
+  const correctCount = entry.consecutiveCorrect ?? entry.correctCount ?? 0;
+  return correctCount >= MASTERY_THRESHOLD;
 }
 
 /** Trạng thái node theo profile */
 export function getTopicStatus(profile, topicId) {
-  const t = profile?.topics?.[topicId];
-  if (!t) return 'unknown';
-  if (t.errorCount > t.correctCount || t.errorCount >= 2) return 'weak';
-  if (isTopicMastered(t)) return 'strong';
+  const entry = profile?.topics ? getEntry(profile.topics, topicId) : null;
+  if (!entry) return 'unknown';
+  const errorCount = entry.consecutiveWrong ?? entry.errorCount ?? 0;
+  const correctCount = entry.consecutiveCorrect ?? entry.correctCount ?? 0;
+  if (errorCount > correctCount || errorCount >= 2) return 'weak';
+  if (isTopicMastered(entry)) return 'strong';
   return 'learning';
 }
 
 function severityFromEntry(entry) {
-  const diff = (entry?.errorCount || 0) - (entry?.correctCount || 0);
-  if (diff >= 3 || (entry?.errorCount || 0) >= 4) return 'high';
-  if (diff >= 1 || (entry?.errorCount || 0) >= 2) return 'medium';
+  const errorCount = entry?.consecutiveWrong ?? entry?.errorCount ?? 0;
+  const correctCount = entry?.consecutiveCorrect ?? entry?.correctCount ?? 0;
+  const diff = errorCount - correctCount;
+  if (diff >= 3 || errorCount >= 4) return 'high';
+  if (diff >= 1 || errorCount >= 2) return 'medium';
   return 'low';
 }
 
 /** Chủ đề yếu — sắp xếp theo mức độ nghiêm trọng */
 export function getWeakTopics(profile) {
   if (!profile?.topics) return [];
-  return Object.entries(profile.topics)
-    .filter(([, e]) => e.errorCount > e.correctCount || e.errorCount >= 2)
+  return getAllEntries(profile.topics)
+    .filter(([, e]) => {
+      const ec = e?.consecutiveWrong ?? e?.errorCount ?? 0;
+      const cc = e?.consecutiveCorrect ?? e?.correctCount ?? 0;
+      return ec > cc || ec >= 2;
+    })
     .map(([id, e]) => ({
       id,
       name: NODE_BY_ID[id]?.name || id,
       grade: NODE_BY_ID[id]?.grade || null,
       severity: severityFromEntry(e),
-      errorCount: e.errorCount,
-      correctCount: e.correctCount,
+      errorCount: e?.consecutiveWrong ?? e?.errorCount ?? 0,
+      correctCount: e?.consecutiveCorrect ?? e?.correctCount ?? 0,
     }))
     .sort((a, b) => b.errorCount - a.errorCount);
 }
@@ -279,13 +381,17 @@ export function getWeakTopics(profile) {
 /** Chủ đề vững */
 export function getStrongTopics(profile) {
   if (!profile?.topics) return [];
-  return Object.entries(profile.topics)
-    .filter(([, e]) => e.correctCount > e.errorCount && e.correctCount >= 2)
+  return getAllEntries(profile.topics)
+    .filter(([, e]) => {
+      const cc = e?.consecutiveCorrect ?? e?.correctCount ?? 0;
+      const ec = e?.consecutiveWrong ?? e?.errorCount ?? 0;
+      return cc > ec && cc >= 2;
+    })
     .map(([id, e]) => ({
       id,
       name: NODE_BY_ID[id]?.name || id,
       grade: NODE_BY_ID[id]?.grade || null,
-      correctCount: e.correctCount,
+      correctCount: e?.consecutiveCorrect ?? e?.correctCount ?? 0,
     }))
     .sort((a, b) => b.correctCount - a.correctCount);
 }
@@ -314,7 +420,7 @@ export function getKnowledgeMap(profile, gradeFilter) {
   let nodes = MATH_GRAPH.nodes.map((n) => ({
     ...n,
     status: getTopicStatus(profile, n.id),
-    ...(profile?.topics?.[n.id] || {}),
+    ...(profile?.topics ? getEntry(profile.topics, n.id) || {} : {}),
   }));
   if (gradeFilter) {
     const g = Number(gradeFilter);

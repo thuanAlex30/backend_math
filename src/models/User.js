@@ -201,6 +201,16 @@ const userSchema = new mongoose.Schema(
   }
 );
 
+// ─── Indexes ──────────────────────────────────────────────────────────────────
+// Các trường thường xuyên query: email, googleId, grade, role, mathStats.points, englishStats.xp
+userSchema.index({ email: 1 }, { unique: true });
+userSchema.index({ googleId: 1 }, { sparse: true });
+userSchema.index({ grade: 1, role: 1 });
+userSchema.index({ 'mathStats.points': -1 });
+userSchema.index({ 'englishStats.xp': -1 });
+userSchema.index({ 'englishStats.streak': -1 });
+userSchema.index({ createdAt: -1 });
+
 userSchema.methods.toPublicJSON = function toPublicJSON() {
   return {
     id: this._id.toString(),
