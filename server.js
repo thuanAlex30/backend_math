@@ -35,6 +35,9 @@ const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const IS_PRODUCTION = process.env.RENDER === 'true' || process.env.NODE_ENV === 'production';
 
+// Render chạy sau reverse proxy — cần trust proxy để express-rate-limit đọc IP thật
+app.set('trust proxy', 1);
+
 app.use(
   cors({
     origin: IS_PRODUCTION ? false : FRONTEND_URL,
@@ -81,12 +84,27 @@ app.use('/api/social', socialRoutes);
 // Serve static frontend (SPA) — cùng domain với API, tránh CORS & cookie cross-origin
 const __dirname = import.meta.dirname ?? path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, 'dist');
-app.use(express.static(DIST_DIR));
+const HAS_DIST = await checkDistExists();
 
-// SPA fallback — mọi route không match API đều trả về index.html
-app.get('*', (_req, res) => {
-  res.sendFile(path.join(DIST_DIR, 'index.html'));
-});
+async function checkDistExists() {
+  try {
+    await import('fs').then(fs => fs.promises.access(path.join(DIST_DIR, 'index.html')));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+if (HAS_DIST) {
+  app.use(express.static(DIST_DIR));
+}
+
+// SPA fallback — chỉ khi có dist, mọi route không match API đều trả về index.html
+if (HAS_DIST) {
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(DIST_DIR, 'index.html'));
+  });
+}
 
 app.listen(PORT, () => {
   const demo = isDemoMode();

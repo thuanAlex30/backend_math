@@ -23,6 +23,7 @@ export function configurePassport() {
         clientID,
         clientSecret,
         callbackURL,
+        scope: ['email', 'profile'],
       },
       async (_accessToken, _refreshToken, profile, done) => {
         try {
