@@ -120,7 +120,7 @@ async function getQotDLeaderboard(limit = 50) {
   return {
     dateString: today,
     leaderboard: users.map((u) => {
-      const todaySub = (u.qotdSubmissions || []).find((s: any) => s.dateString === today);
+      const todaySub = (u.qotdSubmissions || []).find((s) => s.dateString === today);
       return {
         userId: u._id.toString(),
         name: u.name || 'Học sinh ẩn danh',
