@@ -5,7 +5,7 @@
 
 import mongoose from 'mongoose';
 import { buildMathPrompt } from './practice.js';
-import { chatComplete } from './hfRouter.js';
+import { chatComplete, isDemoMode } from './hfRouter.js';
 import User from '../models/User.js';
 
 /**
@@ -37,12 +37,12 @@ async function getTodayQuestion() {
  */
 async function generateDailyQuestion(dateString) {
   try {
-    const isDemoMode = process.env.HUGGINGFACE_API_KEY === 'demo_mode';
+    const demoMode = isDemoMode();
     
     // Generate or select a question
     let question;
     
-    if (isDemoMode) {
+    if (demoMode) {
       question = getRandomDemoQuestion();
     } else {
       // Use the practice service to generate a question

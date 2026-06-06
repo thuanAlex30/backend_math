@@ -16,7 +16,7 @@ router.get('/profile/:sessionId', async (req, res) => {
   try {
     const { sessionId } = req.params;
     const profile = await getStudentProfile(sessionId);
-    if (!profile) {
+    if (!profile || Object.keys(profile.topics || {}).length === 0) {
       return res.status(404).json({ error: 'Không tìm thấy hồ sơ' });
     }
     const weakTopics = getWeakTopics(profile);

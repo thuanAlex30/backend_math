@@ -102,44 +102,57 @@ router.post('/solve-stream', async (req, res) => {
     };
 
     let fullText = '';
-    for await (const chunk of streamSolution(question, personalizedContext, streamOptions)) {
-      if (chunk.token) {
-        fullText += chunk.token;
-        res.write(`data: ${JSON.stringify({ token: chunk.token })}\n\n`);
-      }
-      if (chunk.done) {
-        const parsed = chunk.solution
-          ? { solution: chunk.solution, visualization: chunk.visualization }
-          : extractVisualization(fullText);
-        const steps = parseSteps(parsed.solution);
-        res.write(
-          `data: ${JSON.stringify({
-            done: true,
-            solution: parsed.solution,
-            visualization: parsed.visualization,
-            steps,
-            question,
-            topicId,
-            mode: streamOptions.mode,
-            demo: isDemoMode(),
-          })}\n\n`
-        );
+    try {
+      for await (const chunk of streamSolution(question, personalizedContext, streamOptions)) {
+        if (!res.writableEnded) {
+          if (chunk.token) {
+            fullText += chunk.token;
+            res.write(`data: ${JSON.stringify({ token: chunk.token })}\n\n`);
+          }
+          if (chunk.done) {
+            const parsed = chunk.solution
+              ? { solution: chunk.solution, visualization: chunk.visualization }
+              : extractVisualization(fullText);
+            const steps = parseSteps(parsed.solution);
+            res.write(
+              `data: ${JSON.stringify({
+                done: true,
+                solution: parsed.solution,
+                visualization: parsed.visualization,
+                steps,
+                question,
+                topicId,
+                mode: streamOptions.mode,
+                demo: isDemoMode(),
+              })}\n\n`
+            );
 
-        // Cập nhật profile theo mode
-        if (studentSessionId && topicId && !skipProfileUpdate) {
-          try {
-            if (profileCorrect === true) {
-              await updateStudentProfile(studentSessionId, topicId, true);
-            } else if (mode !== 'hint') {
-              await updateStudentProfile(studentSessionId, topicId, false);
+            if (studentSessionId && topicId && !skipProfileUpdate) {
+              try {
+                if (profileCorrect === true) {
+                  await updateStudentProfile(studentSessionId, topicId, true);
+                } else if (mode !== 'hint') {
+                  await updateStudentProfile(studentSessionId, topicId, false);
+                }
+              } catch (profileErr) {
+                console.warn('Graph RAG profile update failed:', profileErr.message);
+              }
             }
-          } catch (profileErr) {
-            console.warn('Graph RAG profile update failed:', profileErr.message);
           }
         }
       }
+    } catch (streamErr) {
+      console.error('Stream chunk error:', streamErr.message);
+      if (!res.writableEnded) {
+        res.write(
+          `data: ${JSON.stringify({
+            error: 'Stream bị gián đoạn — thử lại',
+            hint: 'Kiểm tra kết nối mạng',
+          })}\n\n`
+        );
+      }
     }
-    res.end();
+    if (!res.writableEnded) res.end();
   } catch (error) {
     console.error('Stream error:', error.message);
     res.write(

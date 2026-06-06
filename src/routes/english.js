@@ -66,7 +66,8 @@ router.post('/english/vocabulary/:topicId/expand', async (req, res) => {
     const result = await expandVocabulary(req.params.topicId, grade, { exclude, count });
     res.json(result);
   } catch (e) {
-    res.status(502).json({ error: e.message });
+    const status = e.message.includes('timeout') ? 504 : 502;
+    res.status(status).json({ error: e.message });
   }
 });
 
@@ -88,7 +89,8 @@ router.post('/english/grammar/explain', async (req, res) => {
     const result = await explainGrammar(topicId, g, level);
     res.json(result);
   } catch (e) {
-    res.status(502).json({ error: e.message });
+    const status = e.message.includes('timeout') ? 504 : 502;
+    res.status(status).json({ error: e.message });
   }
 });
 
@@ -102,7 +104,8 @@ router.post('/english/writing/check', async (req, res) => {
     if (userId && result.score !== undefined) recordEnglishSkill(userId, 'writing', result.score).catch(() => {});
     res.json(result);
   } catch (e) {
-    res.status(502).json({ error: e.message });
+    const status = e.message.includes('timeout') ? 504 : 502;
+    res.status(status).json({ error: e.message });
   }
 });
 
@@ -114,7 +117,8 @@ router.post('/english/pronunciation/score', async (req, res) => {
     const result = await scorePronunciation(expected, spoken, g, level);
     res.json(result);
   } catch (e) {
-    res.status(502).json({ error: e.message });
+    const status = e.message.includes('timeout') ? 504 : 502;
+    res.status(status).json({ error: e.message });
   }
 });
 
@@ -125,7 +129,8 @@ router.post('/english/listening/generate', async (req, res) => {
     const result = await generateListening(g, topicId, level);
     res.json(result);
   } catch (e) {
-    res.status(502).json({ error: e.message });
+    const status = e.message.includes('timeout') ? 504 : 502;
+    res.status(status).json({ error: e.message });
   }
 });
 
@@ -145,7 +150,8 @@ router.post('/english/reading/generate', async (req, res) => {
     const result = await generateReading(g, level);
     res.json(result);
   } catch (e) {
-    res.status(502).json({ error: e.message });
+    const status = e.message.includes('timeout') ? 504 : 502;
+    res.status(status).json({ error: e.message });
   }
 });
 
@@ -164,7 +170,8 @@ router.post('/english/reading/grade', (req, res) => {
     if (userId) recordEnglishSkill(userId, 'reading', score).catch(() => {});
     res.json({ score, correct, total: questions.length, results });
   } catch (e) {
-    res.status(502).json({ error: e.message });
+    const status = e.message.includes('timeout') ? 504 : 502;
+    res.status(status).json({ error: e.message });
   }
 });
 
@@ -177,7 +184,8 @@ router.post('/english/chat', async (req, res) => {
     const result = await englishChat(messages, { level, role, grade: g, topicId, studentContext, userId });
     res.json(result);
   } catch (e) {
-    res.status(502).json({ error: e.message });
+    const status = e.message.includes('timeout') ? 504 : 502;
+    res.status(status).json({ error: e.message });
   }
 });
 
@@ -194,10 +202,14 @@ router.get('/english/leaderboard', async (_req, res) => {
 /** Sync English stats lên MongoDB (gọi khi user đăng nhập hoặc kết thúc phiên học) */
 router.post('/english/stats/sync', verifyToken, async (req, res) => {
   try {
-    const { xp, level, streak, wordsLearned, lastStudyDate, pronunciationScore, listeningScore, writingScore, totalStudyMinutes, weeklyProgress, skillsPracticed } = req.body;
+    const { xp, level, streak, wordsLearned, lastStudyDate,
+      pronunciationScore, listeningScore, writingScore,
+      readingScore, grammarScore, chatScore,
+      totalStudyMinutes, weeklyProgress, skillsPracticed } = req.body;
     const result = await syncEnglishStats(req.user.id, {
       xp, level, streak, wordsLearned, lastStudyDate,
       pronunciationScore, listeningScore, writingScore,
+      readingScore, grammarScore, chatScore,
       totalStudyMinutes, weeklyProgress, skillsPracticed,
     });
     res.json(result);
