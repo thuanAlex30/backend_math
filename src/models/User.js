@@ -202,9 +202,8 @@ const userSchema = new mongoose.Schema(
 );
 
 // ─── Indexes ──────────────────────────────────────────────────────────────────
-// Các trường thường xuyên query: email, googleId, grade, role, mathStats.points, englishStats.xp
-userSchema.index({ email: 1 }, { unique: true });
-userSchema.index({ googleId: 1 }, { sparse: true });
+// unique: true trên email/googleId đã tự tạo index, không cần khai báo lại
+// Indexes bổ sung cho các trường thường xuyên query
 userSchema.index({ grade: 1, role: 1 });
 userSchema.index({ 'mathStats.points': -1 });
 userSchema.index({ 'englishStats.xp': -1 });
