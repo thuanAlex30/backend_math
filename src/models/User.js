@@ -185,6 +185,16 @@ const userSchema = new mongoose.Schema(
         chat: { type: Number, default: 0 },
       },
     },
+    // Math Gamification — points, badges (synced from frontend store)
+    mathStats: {
+      points: { type: Number, default: 0 },
+      selfSolveCount: { type: Number, default: 0 },
+      streak: { type: Number, default: 0 },
+      lastStudyDate: String,
+      topicCorrectCounts: { type: Map, of: Number, default: {} },
+      // Badges: [{ id, name, emoji, unlocked }]
+      badges: { type: [Object], default: [] },
+    },
   },
   {
     timestamps: { createdAt: true, updatedAt: false },
@@ -201,6 +211,7 @@ userSchema.methods.toPublicJSON = function toPublicJSON() {
     grade: this.grade,
     createdAt: this.createdAt,
     englishStats: this.englishStats,
+    mathStats: this.mathStats,
   };
 };
 

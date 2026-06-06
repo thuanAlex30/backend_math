@@ -9,6 +9,8 @@ import {
   updateStudentProfile,
 } from '../services/graphRag.js';
 import { generateDailyPlan, completeDailyTask } from '../services/dailyPlan.js';
+import { verifyToken } from '../middleware/verifyToken.js';
+import User from '../models/User.js';
 
 const router = Router();
 
@@ -112,6 +114,65 @@ router.post('/profile/:sessionId/record-topic', async (req, res) => {
   } catch (err) {
     console.error('[record-topic]', err);
     res.status(500).json({ error: 'Không cập nhật được chủ đề' });
+  }
+});
+
+/** Sync Math gamification stats lên MongoDB */
+router.post('/math/stats/sync', verifyToken, async (req, res) => {
+  try {
+    const { points, selfSolveCount, streak, lastStudyDate, topicCorrectCounts, badges } = req.body;
+    await User.findByIdAndUpdate(req.user.id, {
+      mathStats: {
+        points: Number(points) || 0,
+        selfSolveCount: Number(selfSolveCount) || 0,
+        streak: Number(streak) || 0,
+        lastStudyDate: lastStudyDate || null,
+        topicCorrectCounts: topicCorrectCounts || {},
+        badges: badges || [],
+      },
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[math/stats/sync]', err);
+    res.status(500).json({ error: 'Lỗi sync stats Toán' });
+  }
+});
+
+/** Lấy Math stats của user đang login */
+router.get('/math/stats/me', verifyToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('mathStats');
+    res.json({ mathStats: user?.mathStats || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Global Math Leaderboard */
+router.get('/math/leaderboard/global', async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 50, 100);
+    const users = await User.find({ 'mathStats.points': { $gt: 0 } })
+      .sort({ 'mathStats.points': -1 })
+      .limit(limit)
+      .select('name avatar grade mathStats')
+      .lean();
+
+    const leaderboard = users.map((u, i) => ({
+      rank: i + 1,
+      name: u.name,
+      avatar: u.avatar,
+      grade: u.grade,
+      points: u.mathStats?.points || 0,
+      streak: u.mathStats?.streak || 0,
+      selfSolveCount: u.mathStats?.selfSolveCount || 0,
+      badges: (u.mathStats?.badges || []).filter((b) => b.unlocked).length,
+    }));
+
+    res.json({ leaderboard });
+  } catch (err) {
+    console.error('[math/leaderboard/global]', err);
+    res.status(500).json({ error: 'Lỗi lấy bảng xếp hạng' });
   }
 });
 

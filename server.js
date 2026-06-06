@@ -19,6 +19,7 @@ import authRoutes from './src/routes/auth.js';
 import notificationRoutes from './src/routes/notifications.js';
 import socialRoutes from './src/routes/social.js';
 import vocabSrRoutes from './src/routes/vocabSr.js';
+import { perUserLimiter } from './src/middleware/perUserRateLimit.js';
 import { isDemoMode } from './src/services/hfRouter.js';
 import { ensureProfilesDir } from './src/services/graphRag.js';
 import { connectDatabase } from './src/config/database.js';
@@ -56,6 +57,7 @@ const limiter = rateLimit({
   max: 120,
 });
 app.use('/api', limiter);
+app.use(perUserLimiter);
 
 app.get('/api/health', (_req, res) => {
   const demo = isDemoMode();

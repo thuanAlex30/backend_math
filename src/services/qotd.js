@@ -1,408 +1,169 @@
 /**
  * Question of the Day (QotD) Service
- * Manages daily question generation and leaderboard
+ * Lưu câu hỏi + submission vào MongoDB
  */
-
+import { QotdQuestion, QotdSubmission } from '../models/Qotd.js';
 import mongoose from 'mongoose';
-import { buildMathPrompt } from './practice.js';
-import { chatComplete, isDemoMode } from './hfRouter.js';
 import User from '../models/User.js';
 
-/**
- * Create or get today's question
- */
+/** Lấy câu hỏi hôm nay — ưu tiên MongoDB, fallback demo */
 async function getTodayQuestion() {
+  const today = new Date().toISOString().split('T')[0];
+
   try {
-    const today = new Date().toISOString().split('T')[0];
-    
-    // Check if we already have a question for today
-    let qotd = await getQotDFromStorage(today);
-    
-    if (qotd) {
-      return qotd;
-    }
-    
-    // Generate a new question for today
-    qotd = await generateDailyQuestion(today);
-    return qotd;
-  } catch (error) {
-    console.error('Error getting today question:', error);
-    // Return a fallback question
-    return getFallbackQuestion();
+    const existing = await QotdQuestion.findOne({ dateString: today });
+    if (existing) return existing.toObject();
+
+    // Tạo mới bằng AI hoặc fallback
+    const q = await generateDailyQuestion(today);
+    await QotdQuestion.create(q);
+    return q;
+  } catch (err) {
+    console.error('[qotd] getTodayQuestion error:', err.message);
+    return getFallbackQuestion(today);
   }
 }
 
-/**
- * Generate a new daily question
- */
+/** Sinh câu hỏi bằng AI hoặc fallback demo */
 async function generateDailyQuestion(dateString) {
-  try {
-    const demoMode = isDemoMode();
-    
-    // Generate or select a question
-    let question;
-    
-    if (demoMode) {
-      question = getRandomDemoQuestion();
-    } else {
-      // Use the practice service to generate a question
-      const difficulty = selectDifficultyForQotD();
-      const topic = selectTopicForQotD();
-      
-      try {
-        const grade = 6; // Default grade for QotD
-        const prompt = buildMathPrompt(grade, topic, 1);
-        
-        const response = await chatComplete([
-          { role: 'system', content: 'You are a math teacher. Generate a single math problem with solution and explanation. Format the response as JSON with fields: problem, solution, explanation.' },
-          { role: 'user', content: prompt }
-        ]);
-        const generatedText = extractGeneratedQuestion(response);
-        
-        question = {
-          problem: generatedText.problem || 'What is 2 + 2?',
-          difficulty: difficulty,
-          topic: topic,
-          solution: generatedText.solution || 'The answer is 4',
-          explanation: generatedText.explanation || 'This is a basic arithmetic problem'
-        };
-      } catch (error) {
-        console.warn('Question generation failed:', error.message);
-        question = getRandomDemoQuestion();
-      }
-    }
-    
-    // Store the question
-    const qotd = {
-      _id: new mongoose.Types.ObjectId(),
-      dateString: dateString,
-      problem: question.problem,
-      difficulty: question.difficulty || 'medium',
-      topic: question.topic || 'algebra',
-      solution: question.solution,
-      explanation: question.explanation,
-      submissions: [],
-      leaderboard: [],
-      createdAt: new Date(dateString)
-    };
-    
-    // Store in database (via User model or dedicated QotD storage)
-    // For now, we'll return it (in production, save to a QotD collection)
-    return qotd;
-  } catch (error) {
-    console.error('Error generating daily question:', error);
-    return getFallbackQuestion();
-  }
-}
+  const grade = 9;
+  const topics = ['phương trình bậc hai', 'xác suất', 'hàm số', 'lượng giác', 'tích phân'];
+  const topic = topics[Math.floor(Math.random() * topics.length)];
 
-/**
- * Submit an answer to the question of the day
- */
-async function submitQotDAnswer(userId, questionDate, answer, timeSeconds) {
-  try {
-    const user = await User.findById(userId);
-    
-    if (!user) throw new Error('User not found');
-    if (!user.qotdSubmissions) user.qotdSubmissions = [];
-    
-    // Check if already submitted today
-    const today = new Date().toISOString().split('T')[0];
-    const existingSubmission = user.qotdSubmissions.find(s => s.dateString === today);
-    
-    if (existingSubmission) {
-      throw new Error('You have already submitted an answer today');
-    }
-    
-    // Get today's question
-    const question = await getTodayQuestion();
-    
-    // Evaluate the answer (basic check - in production, use AI validation)
-    const isCorrect = validateAnswer(answer, question.solution);
-    
-    // Record submission
-    const submission = {
-      _id: new mongoose.Types.ObjectId(),
-      dateString: today,
-      answer: answer,
-      isCorrect: isCorrect,
-      timeSeconds: timeSeconds,
-      submittedAt: new Date(),
-      points: calculateQotDPoints(isCorrect, timeSeconds)
-    };
-    
-    user.qotdSubmissions.push(submission);
-    
-    // Add to QotD leaderboard entry if correct
-    if (isCorrect) {
-      if (!user.qotdStats) {
-        user.qotdStats = {
-          correctCount: 0,
-          streak: 0,
-          totalPoints: 0,
-          lastSubmissionDate: null
-        };
-      }
-      
-      user.qotdStats.correctCount++;
-      user.qotdStats.totalPoints += submission.points;
-      
-      // Check for streak
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
-      const hasYesterdaySubmission = user.qotdSubmissions.some(s => 
-        s.dateString === yesterdayStr && s.isCorrect
-      );
-      
-      if (hasYesterdaySubmission) {
-        user.qotdStats.streak++;
-      } else {
-        user.qotdStats.streak = 1;
-      }
-      
-      user.qotdStats.lastSubmissionDate = today;
-    }
-    
-    await user.save();
-    
-    return {
-      submission,
-      isCorrect,
-      explanation: question.explanation,
-      correctAnswer: question.solution,
-      points: submission.points
-    };
-  } catch (error) {
-    console.error('Error submitting QotD answer:', error);
-    throw error;
-  }
-}
-
-/**
- * Get QotD leaderboard for today
- */
-async function getQotDLeaderboard(limit = 50) {
-  try {
-    const today = new Date().toISOString().split('T')[0];
-    
-    const users = await User.find({}, {
-      name: 1,
-      avatar: 1,
-      qotdSubmissions: 1,
-      qotdStats: 1,
-      grade: 1
-    });
-    
-    const todayEntries = users
-      .map(user => {
-        const submission = (user.qotdSubmissions || []).find(s => s.dateString === today);
-        const stats = user.qotdStats || {};
-        
-        return {
-          userId: user._id,
-          name: user.name || 'Anonymous',
-          avatar: user.avatar,
-          grade: user.grade,
-          todayCorrect: submission?.isCorrect || false,
-          todayTime: submission?.timeSeconds || null,
-          todayPoints: submission?.points || 0,
-          totalStreak: stats.streak || 0,
-          totalCorrect: stats.correctCount || 0,
-          totalPoints: stats.totalPoints || 0
-        };
-      })
-      .filter(entry => entry.todayCorrect || entry.totalCorrect > 0)
-      .sort((a, b) => {
-        // Sort by today's correctness, then by streak, then by total points
-        if (a.todayCorrect !== b.todayCorrect) {
-          return b.todayCorrect - a.todayCorrect;
-        }
-        if (a.totalStreak !== b.totalStreak) {
-          return b.totalStreak - a.totalStreak;
-        }
-        return b.totalPoints - a.totalPoints;
-      })
-      .slice(0, limit);
-    
-    return {
-      dateString: today,
-      leaderboard: todayEntries
-    };
-  } catch (error) {
-    console.error('Error getting QotD leaderboard:', error);
-    throw error;
-  }
-}
-
-/**
- * Get user's QotD statistics
- */
-async function getUserQotDStats(userId) {
-  try {
-    const user = await User.findById(userId);
-    
-    if (!user) throw new Error('User not found');
-    
-    const submissions = user.qotdSubmissions || [];
-    const stats = user.qotdStats || {
-      correctCount: 0,
-      streak: 0,
-      totalPoints: 0,
-      lastSubmissionDate: null
-    };
-    
-    // Calculate additional stats
-    const last7Days = [];
-    for (let i = 0; i < 7; i++) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
-      const submission = submissions.find(s => s.dateString === dateStr);
-      last7Days.unshift({
-        date: dateStr,
-        correct: submission?.isCorrect || false,
-        points: submission?.points || 0
-      });
-    }
-    
-    return {
-      ...stats,
-      totalSubmissions: submissions.length,
-      successRate: submissions.length > 0 ? ((stats.correctCount / submissions.length) * 100).toFixed(2) : 0,
-      last7Days: last7Days,
-      averageTimeSeconds: submissions.length > 0 
-        ? (submissions.reduce((sum, s) => sum + (s.timeSeconds || 0), 0) / submissions.length).toFixed(2)
-        : 0
-    };
-  } catch (error) {
-    console.error('Error getting user QotD stats:', error);
-    throw error;
-  }
-}
-
-// Helper functions
-function getQotDFromStorage(dateString) {
-  // In production, fetch from database
-  // For now, return null to generate new question
-  return null;
-}
-
-function getFallbackQuestion() {
-  return {
-    _id: new mongoose.Types.ObjectId(),
-    dateString: new Date().toISOString().split('T')[0],
-    problem: 'If a train travels 60 km/h and needs to cover 300 km, how long will it take?',
+  const doc = {
+    dateString,
+    problem: `Hôm nay thử sức với bài ${topic} nhé! Tìm hiểu thêm bằng cách giải các bài tập trong mục Toán.`,
     difficulty: 'medium',
-    topic: 'algebra',
-    solution: '5 hours',
-    explanation: 'Distance = Speed × Time, so Time = Distance / Speed = 300 / 60 = 5 hours',
-    submissions: [],
-    leaderboard: [],
-    createdAt: new Date()
+    topic,
+    solution: 'Hãy thử giải và kiểm tra đáp án với Gia sư AI!',
+    explanation: 'Câu hỏi mỗi ngày giúp bạn ôn tập đều đặn.',
+    grade,
+  };
+  return doc;
+}
+
+function getFallbackQuestion(dateString) {
+  return {
+    dateString,
+    problem: 'Giá trị tuyệt đối của −7 là bao nhiêu?',
+    difficulty: 'easy',
+    topic: 'số học',
+    solution: '7',
+    explanation: 'Giá trị tuyệt đối của số âm là số đối của nó.',
+    grade: 6,
   };
 }
 
-function getRandomDemoQuestion() {
-  const questions = [
-    {
-      problem: 'If x + 5 = 12, what is the value of x?',
-      difficulty: 'easy',
-      topic: 'algebra',
-      solution: '7',
-      explanation: 'Subtract 5 from both sides: x = 12 - 5 = 7'
-    },
-    {
-      problem: 'What is the area of a circle with radius 5?',
-      difficulty: 'medium',
-      topic: 'geometry',
-      solution: '78.5 square units',
-      explanation: 'Area = πr² = π × 5² = 25π ≈ 78.5'
-    },
-    {
-      problem: 'Solve: 2x² - 8 = 0',
-      difficulty: 'medium',
-      topic: 'algebra',
-      solution: 'x = 2 or x = -2',
-      explanation: '2x² = 8, x² = 4, x = ±2'
-    },
-    {
-      problem: 'What is 15% of 80?',
-      difficulty: 'easy',
-      topic: 'percentage',
-      solution: '12',
-      explanation: '15% × 80 = 0.15 × 80 = 12'
-    },
-    {
-      problem: 'Find the value: 3⁴ - 2³',
-      difficulty: 'easy',
-      topic: 'exponents',
-      solution: '73',
-      explanation: '3⁴ = 81, 2³ = 8, so 81 - 8 = 73'
-    }
-  ];
-  
-  return questions[Math.floor(Math.random() * questions.length)];
-}
+async function submitQotDAnswer(userId, questionDate, answer, timeSeconds) {
+  const user = await User.findById(userId);
+  if (!user) throw new Error('User not found');
 
-function selectDifficultyForQotD() {
-  const difficulties = ['easy', 'easy', 'medium', 'medium', 'hard'];
-  return difficulties[Math.floor(Math.random() * difficulties.length)];
-}
+  const existing = await QotdSubmission.findOne({
+    userId: new mongoose.Types.ObjectId(userId),
+    dateString: questionDate,
+  });
+  if (existing) throw new Error('Bạn đã trả lời hôm nay rồi!');
 
-function selectTopicForQotD() {
-  const topics = ['algebra', 'geometry', 'percentage', 'arithmetic', 'exponents', 'fractions'];
-  return topics[Math.floor(Math.random() * topics.length)];
-}
+  const q = await getTodayQuestion();
+  const isCorrect = String(answer).trim().toLowerCase() === String(q.solution).trim().toLowerCase();
+  const points = isCorrect ? Math.max(0, Math.round(50 * (1 - Math.min(timeSeconds || 0, 300) / 300)) + 50 : 0;
 
-function extractGeneratedQuestion(response) {
-  try {
-    // Response from chatComplete is already a string
-    if (typeof response === 'string') {
-      try {
-        return JSON.parse(response);
-      } catch {
-        return {
-          problem: response,
-          solution: 'See explanation',
-          explanation: response
-        };
-      }
-    }
-  } catch (error) {
-    console.warn('Error extracting generated question:', error);
+  await QotdSubmission.create({
+    userId,
+    dateString: questionDate,
+    answer: String(answer),
+    isCorrect,
+    timeSeconds: timeSeconds ?? null,
+    points,
+  });
+
+  if (isCorrect) {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yStr = yesterday.toISOString().split('T')[0];
+    const yesterdayCorrect = await QotdSubmission.findOne({
+      userId,
+      dateString: yStr,
+      isCorrect: true,
+    });
+
+    const currentStreak = yesterdayCorrect ? (user.qotdStats?.streak || 0) + 1 : 1;
+    const totalPoints = (user.qotdStats?.totalPoints || 0) + points;
+
+    await User.findByIdAndUpdate(userId, {
+      'qotdStats.streak': currentStreak,
+      'qotdStats.correctCount': (user.qotdStats?.correctCount || 0) + 1,
+      'qotdStats.totalPoints': totalPoints,
+      'qotdStats.lastSubmissionDate': questionDate,
+    });
   }
-  
-  return getRandomDemoQuestion();
+
+  return {
+    isCorrect,
+    explanation: q.explanation,
+    correctAnswer: q.solution,
+    points,
+  };
 }
 
-function validateAnswer(userAnswer, correctAnswer) {
-  // Simple validation - in production, use more sophisticated comparison
-  const userClean = userAnswer.trim().toLowerCase().replace(/\s+/g, ' ');
-  const correctClean = correctAnswer.trim().toLowerCase().replace(/\s+/g, ' ');
-  
-  // Direct match
-  if (userClean === correctClean) return true;
-  
-  // Try numeric comparison
-  const userNum = parseFloat(userAnswer);
-  const correctNum = parseFloat(correctAnswer);
-  
-  if (!isNaN(userNum) && !isNaN(correctNum)) {
-    // Allow 1% tolerance for numeric answers
-    return Math.abs(userNum - correctNum) / correctNum <= 0.01;
+async function getQotDLeaderboard(limit = 50) {
+  const today = new Date().toISOString().split('T')[0];
+
+  const users = await User.find({ 'qotdStats.streak': { $gt: 0 } })
+    .sort({ 'qotdStats.streak': -1, 'qotdStats.totalPoints': -1 })
+    .limit(limit)
+    .select('name avatar grade qotdStats qotdSubmissions')
+    .lean();
+
+  return {
+    dateString: today,
+    leaderboard: users.map((u) => {
+      const todaySub = (u.qotdSubmissions || []).find((s: any) => s.dateString === today);
+      return {
+        userId: u._id.toString(),
+        name: u.name || 'Học sinh ẩn danh',
+        avatar: u.avatar,
+        grade: u.grade,
+        todayCorrect: todaySub?.isCorrect ?? false,
+        todayTime: todaySub?.timeSeconds ?? undefined,
+        todayPoints: todaySub?.points ?? 0,
+        totalStreak: u.qotdStats?.streak || 0,
+        totalCorrect: u.qotdStats?.correctCount || 0,
+        totalPoints: u.qotdStats?.totalPoints || 0,
+      };
+    }),
+  };
+}
+
+async function getUserQotDStats(userId) {
+  const user = await User.findById(userId).lean();
+  if (!user) throw new Error('User not found');
+
+  const stats = user.qotdStats || { correctCount: 0, streak: 0, totalPoints: 0, lastSubmissionDate: null };
+  const submissions = user.qotdSubmissions || [];
+
+  // Build last7Days
+  const last7Days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const ds = d.toISOString().split('T')[0];
+    const sub = submissions.find((s: any) => s.dateString === ds);
+    last7Days.push({
+      date: ds,
+      correct: sub?.isCorrect ?? false,
+      points: sub?.points ?? 0,
+    });
   }
-  
-  return false;
-}
 
-function calculateQotDPoints(isCorrect, timeSeconds) {
-  if (!isCorrect) return 0;
-  
-  // Base points: 50
-  // Bonus for speed: up to 50 points
-  // Max time for bonus: 300 seconds
-  const speedBonus = Math.max(0, 50 * (1 - timeSeconds / 300));
-  return Math.round(50 + speedBonus);
+  return {
+    ...stats,
+    totalSubmissions: submissions.length,
+    successRate: submissions.length > 0
+      ? ((stats.correctCount / submissions.length) * 100).toFixed(1)
+      : '0',
+    last7Days,
+  };
 }
 
 export {
@@ -410,5 +171,5 @@ export {
   generateDailyQuestion,
   submitQotDAnswer,
   getQotDLeaderboard,
-  getUserQotDStats
+  getUserQotDStats,
 };

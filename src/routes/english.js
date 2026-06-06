@@ -22,8 +22,11 @@ import {
   syncEnglishStats,
   getEnglishStats,
 } from '../services/englishLeaderboard.js';
+import { getEnglishLeaderboard as getCachedLeaderboard } from '../services/leaderboardCache.js';
 import { isValidEnglishGrade } from '../data/englishCurriculum.js';
 import { verifyToken } from '../middleware/verifyToken.js';
+import { chatComplete, isDemoMode, chatCompleteStream } from '../services/hfRouter.js';
+import { ENGLISH_TUTOR_PROMPT } from '../prompts/english.js';
 
 const router = Router();
 
@@ -191,7 +194,7 @@ router.post('/english/chat', async (req, res) => {
 
 router.get('/english/leaderboard', async (_req, res) => {
   try {
-    const leaderboard = await getEnglishLeaderboard(50);
+    const leaderboard = await getCachedLeaderboard(50);
     res.json({ leaderboard });
   } catch (e) {
     console.error('[leaderboard]', e);
@@ -239,5 +242,126 @@ router.get('/english/skills', verifyToken, async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+/** Grammar explain — SSE streaming (dùng cho UX typewriting effect) */
+router.post('/english/grammar/explain-stream', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+
+  try {
+    const { topicId, level, grade } = req.body;
+    const g = parseGrade({ grade }) ?? 9;
+
+    if (isDemoMode()) {
+      const demoText = `[Demo] Đang giải thích ngữ pháp cho chủ đề: ${topicId}\n\nTrong chế độ demo, vui lòng thêm HUGGINGFACE_API_KEY để xem giải thích chi tiết.`;
+      for (const chunk of chunkText(demoText, 20)) {
+        res.write(`data: ${JSON.stringify({ token: chunk })}\n\n`);
+        await sleep(50);
+      }
+      res.write(`data: ${JSON.stringify({ done: true, topicId })}\n\n`);
+      return res.end();
+    }
+
+    // Gọi AI với streaming
+    const messages = [
+      { role: 'system', content: ENGLISH_TUTOR_PROMPT },
+      {
+        role: 'user',
+        content: `Hãy giải thích chi tiết chủ đề ngữ pháp: ${topicId}. Giới hạn 300 từ. Trình bày rõ ràng, có ví dụ minh họa.`,
+      },
+    ];
+
+    for await (const chunk of chatCompleteStream(messages, { max_tokens: 800 })) {
+      if (chunk.token && !res.writableEnded) {
+        res.write(`data: ${JSON.stringify({ token: chunk.token })}\n\n`);
+      }
+    }
+
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ done: true, topicId })}\n\n`);
+      res.end();
+    }
+  } catch (err) {
+    console.error('[grammar/explain-stream]', err.message);
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ error: 'Lỗi streaming' })}\n\n`);
+      res.end();
+    }
+  }
+});
+
+/** Reading passage — SSE streaming */
+router.post('/english/reading/generate-stream', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+
+  try {
+    const { level, grade } = req.body;
+    const g = parseGrade({ grade }) ?? 9;
+
+    if (isDemoMode()) {
+      const demoText = `[Demo] Đang tạo bài đọc cho lớp ${g}...\n\nThêm HUGGINGFACE_API_KEY để tạo bài đọc thực sự.`;
+      for (const chunk of chunkText(demoText, 25)) {
+        res.write(`data: ${JSON.stringify({ token: chunk })}\n\n`);
+        await sleep(60);
+      }
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+      return res.end();
+    }
+
+    const messages = [
+      { role: 'system', content: ENGLISH_TUTOR_PROMPT },
+      {
+        role: 'user',
+        content: `Tạo bài đọc tiếng Anh khoảng 200 từ cho học sinh lớp ${g}. Kèm 3 câu hỏi comprehension (trả lời ngắn). Trả lời JSON: { passage, questions: [{question, answer}] }.`,
+      },
+    ];
+
+    let fullText = '';
+    for await (const chunk of chatCompleteStream(messages, { max_tokens: 1000 })) {
+      if (chunk.token && !res.writableEnded) {
+        fullText += chunk.token;
+        res.write(`data: ${JSON.stringify({ token: chunk.token })}\n\n`);
+      }
+    }
+
+    if (!res.writableEnded) {
+      // Parse JSON từ fullText
+      let passage = '';
+      let questions = [];
+      try {
+        const jsonMatch = fullText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          passage = parsed.passage || fullText;
+          questions = parsed.questions || [];
+        } else {
+          passage = fullText;
+        }
+      } catch {
+        passage = fullText;
+      }
+      res.write(`data: ${JSON.stringify({ done: true, passage, questions })}\n\n`);
+      res.end();
+    }
+  } catch (err) {
+    console.error('[reading/generate-stream]', err.message);
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ error: 'Lỗi tạo bài đọc' })}\n\n`);
+      res.end();
+    }
+  }
+});
+
+// Helper functions cho SSE
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function* chunkText(text, size) {
+  for (let i = 0; i < text.length; i += size) {
+    yield text.slice(i, i + size);
+  }
+}
 
 export default router;

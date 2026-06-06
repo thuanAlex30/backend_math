@@ -4,6 +4,8 @@ import { generatePracticeQuestions } from '../services/practice.js';
 import { isDemoMode, chatComplete } from '../services/hfRouter.js';
 import { isValidGrade } from '../data/curriculum.js';
 import { NODE_BY_ID } from '../data/mathGraph.js';
+import { verifyToken } from '../middleware/verifyToken.js';
+import ExamSubmission from '../models/ExamSubmission.js';
 
 const THPT_MATRIX = [
   { topic: 'dao_ham', weight: 0.18, label: 'Đạo hàm' },
@@ -131,11 +133,11 @@ router.post('/exam/analyze', async (req, res) => {
   }
 });
 
-/** Cập nhật profile sau thi mock */
+/** Cập nhật profile sau thi mock — lưu vào MongoDB */
 router.post('/exam/submit', async (req, res) => {
   try {
-    const { studentSessionId, answers } = req.body || {};
-    if (!studentSessionId || !answers?.length) {
+    const { studentSessionId, answers, grade = 12, questions, timeSpentSeconds } = req.body || {};
+    if (!answers?.length) {
       return res.status(400).json({ error: 'Thiếu dữ liệu bài thi' });
     }
 
@@ -153,14 +155,108 @@ router.post('/exam/submit', async (req, res) => {
     }
 
     const score = answers.filter((a) => a.correct).length;
+    const scoreOutOf10 = Math.round((score / answers.length) * 10 * 10) / 10;
+
+    // Lưu submission vào MongoDB
+    const userId = req.user?.id ?? null;
+    let submission = null;
+    try {
+      const qaList = (questions || answers).map((a, i) => ({
+        questionNumber: i + 1,
+        question: a.question || '',
+        options: a.options || [],
+        userAnswer: a.userAnswer ?? null,
+        correctAnswer: a.correctAnswer ?? a.correct ?? null,
+        isCorrect: a.correct ?? false,
+        topicId: a.topicId || null,
+        topicLabel: a.topicLabel || null,
+      }));
+
+      submission = await ExamSubmission.create({
+        userId,
+        sessionId: studentSessionId || null,
+        type: 'thpt',
+        grade: Number(grade),
+        questions: qaList,
+        score,
+        totalQuestions: answers.length,
+        scoreOutOf10,
+        timeSpentSeconds: timeSpentSeconds ?? null,
+      });
+    } catch (saveErr) {
+      console.warn('[exam/submit] MongoDB save failed:', saveErr.message);
+    }
+
     res.json({
       score,
       total: answers.length,
-      scoreOutOf10: Math.round((score / answers.length) * 10 * 10) / 10,
+      scoreOutOf10,
+      submissionId: submission?._id?.toString() ?? null,
     });
   } catch (err) {
     console.error('[exam/submit]', err);
     res.status(500).json({ error: 'Không nộp được bài thi' });
+  }
+});
+
+/** Lấy lịch sử thi của user */
+router.get('/exam/history', verifyToken, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 20, 50);
+    const submissions = await ExamSubmission.find({ userId: req.user.id })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    res.json({
+      submissions: submissions.map((s) => ({
+        id: s._id.toString(),
+        type: s.type,
+        grade: s.grade,
+        date: s.date,
+        score: s.score,
+        totalQuestions: s.totalQuestions,
+        scoreOutOf10: s.scoreOutOf10,
+        durationMinutes: s.durationMinutes,
+        timeSpentSeconds: s.timeSpentSeconds,
+        createdAt: s.createdAt,
+      })),
+    });
+  } catch (err) {
+    console.error('[exam/history]', err);
+    res.status(500).json({ error: 'Không lấy được lịch sử thi' });
+  }
+});
+
+/** Lấy chi tiết 1 bài thi */
+router.get('/exam/history/:id', verifyToken, async (req, res) => {
+  try {
+    const submission = await ExamSubmission.findOne({
+      _id: req.params.id,
+      userId: req.user.id,
+    }).lean();
+
+    if (!submission) {
+      return res.status(404).json({ error: 'Không tìm thấy bài thi' });
+    }
+
+    res.json({
+      id: submission._id.toString(),
+      type: submission.type,
+      grade: submission.grade,
+      date: submission.date,
+      score: submission.score,
+      totalQuestions: submission.totalQuestions,
+      scoreOutOf10: submission.scoreOutOf10,
+      durationMinutes: submission.durationMinutes,
+      timeSpentSeconds: submission.timeSpentSeconds,
+      analysis: submission.analysis,
+      questions: submission.questions,
+      createdAt: submission.createdAt,
+    });
+  } catch (err) {
+    console.error('[exam/history/:id]', err);
+    res.status(500).json({ error: 'Không lấy được chi tiết bài thi' });
   }
 });
 
